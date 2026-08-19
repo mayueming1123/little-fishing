@@ -1,0 +1,5 @@
+work/
+little-fishing/node_modules/
+little-fishing/dist/
+little-fishing/src-tauri/target/
+*.log

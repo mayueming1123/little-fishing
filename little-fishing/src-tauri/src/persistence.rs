@@ -1,0 +1,1178 @@
+use crate::fishing_rules::{
+    BaitIngredientInfo, BaitProfile, FishProfile, FishRecord, FlavorVector, OutcomeTextCatalog,
+    RoundOutcome, bait_ingredient_seeds, fish_species_seeds, outcome_description_seeds,
+};
+use crate::round_engine::{EventCatalog, WaitingEvent, event_description_seeds};
+use rand::Rng;
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::Serialize;
+use std::{path::Path, sync::Mutex};
+
+#[derive(Debug)]
+pub struct PersistedRoundState {
+    pub phase: String,
+    pub is_fishing: bool,
+    pub round_started_at: Option<String>,
+    pub scheduled_end_time: Option<String>,
+    pub planned_duration_seconds: u64,
+    pub waiting_events_json: String,
+    pub notified_events_json: String,
+    pub round_number: u64,
+    pub selected_recipe_id: u64,
+    pub selected_recipe_name: Option<String>,
+    pub last_result: Option<String>,
+    pub state_revision: u64,
+    pub stop_after_settlement: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StoredAppSettings {
+    pub notifications_enabled: bool,
+    pub bobber_visible: bool,
+    pub bobber_always_on_top: bool,
+    pub theme: String,
+    pub reduced_motion: bool,
+}
+
+impl Default for StoredAppSettings {
+    fn default() -> Self {
+        Self {
+            notifications_enabled: true,
+            bobber_visible: true,
+            bobber_always_on_top: true,
+            theme: "system".to_owned(),
+            reduced_motion: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerSummary {
+    pub body_weight_kg: f64,
+    pub money: f64,
+    pub pending_catches: u64,
+    pub eaten_count: u64,
+    pub sold_count: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FishingLogEntry {
+    pub round_number: u64,
+    pub round_started_at: Option<String>,
+    pub settled_at: String,
+    pub planned_duration_seconds: u64,
+    pub waiting_events: Vec<WaitingEvent>,
+    pub bait_name: String,
+    pub result_type: String,
+    pub fish_id: Option<i64>,
+    pub fish_name: Option<String>,
+    pub length_cm: Option<f64>,
+    pub weight_kg: Option<f64>,
+    pub value: Option<f64>,
+    pub description: String,
+    pub disposition: String,
+    pub disposition_at: Option<String>,
+    pub gained_weight_kg: Option<f64>,
+    pub gained_money: Option<f64>,
+}
+
+pub struct SqliteStore {
+    connection: Mutex<Connection>,
+}
+
+impl SqliteStore {
+    pub fn open(path: &Path) -> rusqlite::Result<Self> {
+        let connection = Connection::open(path)?;
+        connection.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA foreign_keys = ON;
+
+             CREATE TABLE IF NOT EXISTS game_state (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 phase TEXT NOT NULL,
+                 is_fishing INTEGER NOT NULL,
+                 round_started_at TEXT,
+                 scheduled_end_time TEXT,
+                 planned_duration_seconds INTEGER NOT NULL DEFAULT 0,
+                 waiting_events_json TEXT NOT NULL DEFAULT '[]',
+                 notified_events_json TEXT NOT NULL DEFAULT '[]',
+                 round_number INTEGER NOT NULL,
+                 selected_recipe_id INTEGER NOT NULL DEFAULT 1,
+                 selected_recipe_name TEXT,
+                 last_result TEXT,
+                 state_revision INTEGER NOT NULL,
+                 stop_after_settlement INTEGER NOT NULL,
+                 updated_at TEXT NOT NULL
+             );
+
+             CREATE TABLE IF NOT EXISTS waiting_event_descriptions (
+                 category TEXT NOT NULL,
+                 sequence INTEGER NOT NULL,
+                 description TEXT NOT NULL,
+                 enabled INTEGER NOT NULL DEFAULT 1,
+                 PRIMARY KEY (category, sequence)
+             );
+
+             CREATE TABLE IF NOT EXISTS outcome_descriptions (
+                 category TEXT NOT NULL,
+                 sequence INTEGER NOT NULL,
+                 description TEXT NOT NULL,
+                 enabled INTEGER NOT NULL DEFAULT 1,
+                 PRIMARY KEY (category, sequence)
+             );
+
+             CREATE TABLE IF NOT EXISTS fish_species (
+                 id INTEGER PRIMARY KEY,
+                 name TEXT NOT NULL UNIQUE,
+                 price_per_kg REAL NOT NULL,
+                 min_length_cm REAL NOT NULL,
+                 max_length_cm REAL NOT NULL,
+                 min_weight_kg REAL NOT NULL,
+                 max_weight_kg REAL NOT NULL,
+                 price_source_url TEXT NOT NULL,
+                 price_source_date TEXT NOT NULL,
+                 enabled INTEGER NOT NULL DEFAULT 1
+             );
+
+             CREATE TABLE IF NOT EXISTS bait_ingredients (
+                 id INTEGER PRIMARY KEY,
+                 name TEXT NOT NULL UNIQUE,
+                 intensity REAL NOT NULL CHECK (intensity BETWEEN 0 AND 1),
+                 color REAL NOT NULL CHECK (color BETWEEN 0 AND 1),
+                 sweet REAL NOT NULL CHECK (sweet BETWEEN 0 AND 1),
+                 sour REAL NOT NULL CHECK (sour BETWEEN 0 AND 1),
+                 salty REAL NOT NULL CHECK (salty BETWEEN 0 AND 1),
+                 enabled INTEGER NOT NULL DEFAULT 1
+             );
+
+             CREATE TABLE IF NOT EXISTS bait_recipes (
+                 id INTEGER PRIMARY KEY,
+                 name TEXT NOT NULL UNIQUE
+             );
+
+             CREATE TABLE IF NOT EXISTS bait_recipe_components (
+                 recipe_id INTEGER NOT NULL REFERENCES bait_recipes(id),
+                 ingredient_id INTEGER NOT NULL REFERENCES bait_ingredients(id),
+                 percentage REAL NOT NULL CHECK (percentage > 0),
+                 PRIMARY KEY (recipe_id, ingredient_id)
+             );
+
+             CREATE TABLE IF NOT EXISTS daily_fish_preferences (
+                 local_date TEXT NOT NULL,
+                 fish_species_id INTEGER NOT NULL REFERENCES fish_species(id),
+                 intensity REAL NOT NULL CHECK (intensity BETWEEN 0 AND 1),
+                 color REAL NOT NULL CHECK (color BETWEEN 0 AND 1),
+                 sweet REAL NOT NULL CHECK (sweet BETWEEN 0 AND 1),
+                 sour REAL NOT NULL CHECK (sour BETWEEN 0 AND 1),
+                 salty REAL NOT NULL CHECK (salty BETWEEN 0 AND 1),
+                 PRIMARY KEY (local_date, fish_species_id)
+             );
+
+             CREATE TABLE IF NOT EXISTS round_results (
+                 round_number INTEGER PRIMARY KEY,
+                 round_started_at TEXT,
+                 settled_at TEXT NOT NULL,
+                 planned_duration_seconds INTEGER NOT NULL DEFAULT 0,
+                 waiting_events_json TEXT NOT NULL DEFAULT '[]',
+                 preference_date TEXT NOT NULL,
+                 bait_name TEXT NOT NULL,
+                 result_type TEXT NOT NULL,
+                 fish_species_id INTEGER REFERENCES fish_species(id),
+                 length_cm REAL,
+                 weight_kg REAL,
+                 value REAL,
+                 similarity REAL NOT NULL,
+                 description TEXT NOT NULL,
+                 outcome_json TEXT NOT NULL,
+                 disposition TEXT NOT NULL DEFAULT 'pending',
+                 disposition_at TEXT,
+                 gained_weight_kg REAL,
+                 gained_money REAL
+             );
+
+             CREATE TABLE IF NOT EXISTS player_state (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 body_weight_kg REAL NOT NULL DEFAULT 60,
+                 money REAL NOT NULL DEFAULT 0,
+                 eaten_count INTEGER NOT NULL DEFAULT 0,
+                 sold_count INTEGER NOT NULL DEFAULT 0,
+                 updated_at TEXT NOT NULL
+             );
+
+             CREATE TABLE IF NOT EXISTS app_settings (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 notifications_enabled INTEGER NOT NULL DEFAULT 1,
+                 bobber_visible INTEGER NOT NULL DEFAULT 1,
+                 bobber_always_on_top INTEGER NOT NULL DEFAULT 1,
+                 theme TEXT NOT NULL DEFAULT 'system',
+                 reduced_motion INTEGER NOT NULL DEFAULT 0,
+                 updated_at TEXT NOT NULL
+             );",
+        )?;
+        for (category, sequence, description) in event_description_seeds() {
+            connection.execute(
+                "INSERT OR IGNORE INTO waiting_event_descriptions
+                     (category, sequence, description, enabled)
+                 VALUES (?1, ?2, ?3, 1)",
+                params![category, sequence, description],
+            )?;
+        }
+        for (category, sequence, description) in outcome_description_seeds() {
+            connection.execute(
+                "INSERT OR IGNORE INTO outcome_descriptions
+                     (category, sequence, description, enabled)
+                 VALUES (?1, ?2, ?3, 1)",
+                params![category, sequence, description],
+            )?;
+        }
+        for fish in fish_species_seeds() {
+            connection.execute(
+                "INSERT INTO fish_species (
+                     id, name, price_per_kg, min_length_cm, max_length_cm,
+                     min_weight_kg, max_weight_kg, price_source_url,
+                     price_source_date, enabled
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1)
+                 ON CONFLICT(id) DO UPDATE SET
+                     name = excluded.name,
+                     price_per_kg = excluded.price_per_kg,
+                     min_length_cm = excluded.min_length_cm,
+                     max_length_cm = excluded.max_length_cm,
+                     min_weight_kg = excluded.min_weight_kg,
+                     max_weight_kg = excluded.max_weight_kg,
+                     price_source_url = excluded.price_source_url,
+                     price_source_date = excluded.price_source_date",
+                params![
+                    fish.id,
+                    fish.name,
+                    fish.price_per_kg,
+                    fish.min_length_cm,
+                    fish.max_length_cm,
+                    fish.min_weight_kg,
+                    fish.max_weight_kg,
+                    fish.price_source_url,
+                    fish.price_source_date,
+                ],
+            )?;
+        }
+        for ingredient in bait_ingredient_seeds() {
+            connection.execute(
+                "INSERT INTO bait_ingredients (
+                     id, name, intensity, color, sweet, sour, salty, enabled
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)
+                 ON CONFLICT(id) DO UPDATE SET
+                     name = excluded.name,
+                     intensity = excluded.intensity,
+                     color = excluded.color,
+                     sweet = excluded.sweet,
+                     sour = excluded.sour,
+                     salty = excluded.salty",
+                params![
+                    ingredient.id,
+                    ingredient.name,
+                    ingredient.flavor.intensity,
+                    ingredient.flavor.color,
+                    ingredient.flavor.sweet,
+                    ingredient.flavor.sour,
+                    ingredient.flavor.salty,
+                ],
+            )?;
+        }
+        connection.execute(
+            "INSERT OR IGNORE INTO bait_recipes (id, name) VALUES (1, '综合试钓饵')",
+            [],
+        )?;
+        for (ingredient_id, percentage) in [(1_i64, 40.0_f64), (2, 30.0), (3, 30.0)] {
+            connection.execute(
+                "INSERT INTO bait_recipe_components (recipe_id, ingredient_id, percentage)
+                 VALUES (1, ?1, ?2)
+                 ON CONFLICT(recipe_id, ingredient_id) DO UPDATE SET
+                     percentage = excluded.percentage",
+                params![ingredient_id, percentage],
+            )?;
+        }
+        Self::ensure_column(&connection, "game_state", "round_started_at", "TEXT")?;
+        Self::ensure_column(
+            &connection,
+            "game_state",
+            "planned_duration_seconds",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        Self::ensure_column(
+            &connection,
+            "game_state",
+            "waiting_events_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )?;
+        Self::ensure_column(
+            &connection,
+            "game_state",
+            "notified_events_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )?;
+        Self::ensure_column(
+            &connection,
+            "game_state",
+            "selected_recipe_id",
+            "INTEGER NOT NULL DEFAULT 1",
+        )?;
+        Self::ensure_column(&connection, "round_results", "round_started_at", "TEXT")?;
+        Self::ensure_column(
+            &connection,
+            "round_results",
+            "planned_duration_seconds",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        Self::ensure_column(
+            &connection,
+            "round_results",
+            "waiting_events_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )?;
+        Self::ensure_column(
+            &connection,
+            "round_results",
+            "disposition",
+            "TEXT NOT NULL DEFAULT 'pending'",
+        )?;
+        Self::ensure_column(&connection, "round_results", "disposition_at", "TEXT")?;
+        Self::ensure_column(&connection, "round_results", "gained_weight_kg", "REAL")?;
+        Self::ensure_column(&connection, "round_results", "gained_money", "REAL")?;
+        connection.execute(
+            "UPDATE round_results SET disposition = 'not_applicable'
+             WHERE result_type != 'caught' AND disposition = 'pending'",
+            [],
+        )?;
+        connection.execute(
+            "INSERT OR IGNORE INTO player_state
+                 (id, body_weight_kg, money, eaten_count, sold_count, updated_at)
+             VALUES (1, 60, 0, 0, 0, '1970-01-01T00:00:00Z')",
+            [],
+        )?;
+        connection.execute(
+            "INSERT OR IGNORE INTO app_settings (
+                 id, notifications_enabled, bobber_visible,
+                 bobber_always_on_top, theme, reduced_motion, updated_at
+             ) VALUES (1, 1, 1, 1, 'system', 0, '1970-01-01T00:00:00Z')",
+            [],
+        )?;
+        Ok(Self {
+            connection: Mutex::new(connection),
+        })
+    }
+
+    fn ensure_column(
+        connection: &Connection,
+        table_name: &str,
+        column_name: &str,
+        declaration: &str,
+    ) -> rusqlite::Result<()> {
+        let mut statement = connection.prepare(&format!("PRAGMA table_info({table_name})"))?;
+        let names = statement.query_map([], |row| row.get::<_, String>(1))?;
+        for name in names {
+            if name? == column_name {
+                return Ok(());
+            }
+        }
+        connection.execute(
+            &format!("ALTER TABLE {table_name} ADD COLUMN {column_name} {declaration}"),
+            [],
+        )?;
+        Ok(())
+    }
+
+    pub fn load(&self) -> rusqlite::Result<Option<PersistedRoundState>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection
+            .query_row(
+                "SELECT phase, is_fishing, round_started_at, scheduled_end_time,
+                        planned_duration_seconds, waiting_events_json,
+                        notified_events_json, round_number,
+                        selected_recipe_id, selected_recipe_name, last_result,
+                        state_revision, stop_after_settlement
+                 FROM game_state
+                 WHERE id = 1",
+                [],
+                |row| {
+                    Ok(PersistedRoundState {
+                        phase: row.get(0)?,
+                        is_fishing: row.get(1)?,
+                        round_started_at: row.get(2)?,
+                        scheduled_end_time: row.get(3)?,
+                        planned_duration_seconds: row.get::<_, i64>(4)?.max(0) as u64,
+                        waiting_events_json: row.get(5)?,
+                        notified_events_json: row.get(6)?,
+                        round_number: row.get::<_, i64>(7)?.max(0) as u64,
+                        selected_recipe_id: row.get::<_, i64>(8)?.max(1) as u64,
+                        selected_recipe_name: row.get(9)?,
+                        last_result: row.get(10)?,
+                        state_revision: row.get::<_, i64>(11)?.max(0) as u64,
+                        stop_after_settlement: row.get(12)?,
+                    })
+                },
+            )
+            .optional()
+    }
+
+    pub fn load_app_settings(&self) -> rusqlite::Result<StoredAppSettings> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.query_row(
+            "SELECT notifications_enabled, bobber_visible,
+                    bobber_always_on_top, theme, reduced_motion
+             FROM app_settings WHERE id = 1",
+            [],
+            |row| {
+                Ok(StoredAppSettings {
+                    notifications_enabled: row.get(0)?,
+                    bobber_visible: row.get(1)?,
+                    bobber_always_on_top: row.get(2)?,
+                    theme: row.get(3)?,
+                    reduced_motion: row.get(4)?,
+                })
+            },
+        )
+    }
+
+    pub fn save_app_settings(
+        &self,
+        settings: &StoredAppSettings,
+        updated_at: &str,
+    ) -> rusqlite::Result<()> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.execute(
+            "UPDATE app_settings
+             SET notifications_enabled = ?1, bobber_visible = ?2,
+                 bobber_always_on_top = ?3, theme = ?4,
+                 reduced_motion = ?5, updated_at = ?6
+             WHERE id = 1",
+            params![
+                settings.notifications_enabled,
+                settings.bobber_visible,
+                settings.bobber_always_on_top,
+                settings.theme,
+                settings.reduced_motion,
+                updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_event_catalog(&self) -> rusqlite::Result<EventCatalog> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT category, description
+             FROM waiting_event_descriptions
+             WHERE enabled = 1
+             ORDER BY category, sequence",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut ambient = Vec::new();
+        let mut water = Vec::new();
+        let mut tackle = Vec::new();
+        for row in rows {
+            let (category, description) = row?;
+            match category.as_str() {
+                "environment" => ambient.push(description),
+                "water" => water.push(description),
+                "tackle" => tackle.push(description),
+                _ => {}
+            }
+        }
+        if ambient.is_empty() || water.is_empty() || tackle.is_empty() {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        Ok(EventCatalog::new(ambient, water, tackle))
+    }
+
+    pub fn load_outcome_text_catalog(&self) -> rusqlite::Result<OutcomeTextCatalog> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT category, description
+             FROM outcome_descriptions
+             WHERE enabled = 1
+             ORDER BY category, sequence",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut catches = Vec::new();
+        let mut misses = Vec::new();
+        for row in rows {
+            let (category, description) = row?;
+            match category.as_str() {
+                "caught" => catches.push(description),
+                "missed" => misses.push(description),
+                _ => {}
+            }
+        }
+        if catches.is_empty() || misses.is_empty() {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        Ok(OutcomeTextCatalog { catches, misses })
+    }
+
+    pub fn load_bait_profile(&self, recipe_id: i64) -> rusqlite::Result<BaitProfile> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.query_row(
+            "SELECT r.name,
+                    SUM(i.intensity * c.percentage) / SUM(c.percentage),
+                    SUM(i.color * c.percentage) / SUM(c.percentage),
+                    SUM(i.sweet * c.percentage) / SUM(c.percentage),
+                    SUM(i.sour * c.percentage) / SUM(c.percentage),
+                    SUM(i.salty * c.percentage) / SUM(c.percentage)
+             FROM bait_recipes r
+             JOIN bait_recipe_components c ON c.recipe_id = r.id
+             JOIN bait_ingredients i ON i.id = c.ingredient_id
+             WHERE r.id = ?1 AND i.enabled = 1
+             GROUP BY r.id, r.name",
+            [recipe_id],
+            |row| {
+                Ok(BaitProfile {
+                    name: row.get(0)?,
+                    flavor: FlavorVector {
+                        intensity: row.get(1)?,
+                        color: row.get(2)?,
+                        sweet: row.get(3)?,
+                        sour: row.get(4)?,
+                        salty: row.get(5)?,
+                    },
+                })
+            },
+        )
+    }
+
+    pub fn load_bait_ingredients(&self) -> rusqlite::Result<Vec<BaitIngredientInfo>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT id, name
+             FROM bait_ingredients
+             WHERE enabled = 1
+             ORDER BY id",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok(BaitIngredientInfo {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                })
+            })?
+            .collect()
+    }
+
+    pub fn load_recipe_components(&self, recipe_id: i64) -> rusqlite::Result<Vec<(i64, f64)>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT ingredient_id, percentage
+             FROM bait_recipe_components
+             WHERE recipe_id = ?1
+             ORDER BY ingredient_id",
+        )?;
+        statement
+            .query_map([recipe_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect()
+    }
+
+    pub fn save_custom_bait_recipe(
+        &self,
+        name: &str,
+        components: &[(i64, f64)],
+    ) -> rusqlite::Result<BaitProfile> {
+        {
+            let mut connection = self.connection.lock().expect("sqlite connection poisoned");
+            let transaction = connection.transaction()?;
+            transaction.execute(
+                "INSERT INTO bait_recipes (id, name) VALUES (2, ?1)
+                 ON CONFLICT(id) DO UPDATE SET name = excluded.name",
+                [name],
+            )?;
+            transaction.execute("DELETE FROM bait_recipe_components WHERE recipe_id = 2", [])?;
+            for (ingredient_id, percentage) in components {
+                let inserted = transaction.execute(
+                    "INSERT INTO bait_recipe_components
+                         (recipe_id, ingredient_id, percentage)
+                     SELECT 2, id, ?2 FROM bait_ingredients
+                     WHERE id = ?1 AND enabled = 1",
+                    params![ingredient_id, percentage],
+                )?;
+                if inserted != 1 {
+                    return Err(rusqlite::Error::QueryReturnedNoRows);
+                }
+            }
+            transaction.commit()?;
+        }
+        self.load_bait_profile(2)
+    }
+
+    pub fn load_fish_records(&self) -> rusqlite::Result<Vec<FishRecord>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT f.id, f.name, f.price_per_kg,
+                    COUNT(r.round_number), MAX(r.length_cm), MAX(r.weight_kg),
+                    (
+                        SELECT recent.description
+                        FROM round_results recent
+                        WHERE recent.fish_species_id = f.id
+                          AND recent.result_type = 'caught'
+                        ORDER BY recent.settled_at DESC
+                        LIMIT 1
+                    )
+             FROM fish_species f
+             LEFT JOIN round_results r
+               ON r.fish_species_id = f.id AND r.result_type = 'caught'
+             WHERE f.enabled = 1
+             GROUP BY f.id, f.name, f.price_per_kg
+             ORDER BY f.id",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok(FishRecord {
+                    fish_id: row.get(0)?,
+                    name: row.get(1)?,
+                    price_per_kg: row.get(2)?,
+                    caught_count: row.get::<_, i64>(3)?.max(0) as u64,
+                    max_length_cm: row.get(4)?,
+                    max_weight_kg: row.get(5)?,
+                    latest_description: row.get(6)?,
+                })
+            })?
+            .collect()
+    }
+
+    pub fn ensure_daily_preferences<R: Rng + ?Sized>(
+        &self,
+        local_date: &str,
+        rng: &mut R,
+    ) -> rusqlite::Result<()> {
+        let mut connection = self.connection.lock().expect("sqlite connection poisoned");
+        let fish_ids = {
+            let mut statement =
+                connection.prepare("SELECT id FROM fish_species WHERE enabled = 1 ORDER BY id")?;
+            statement
+                .query_map([], |row| row.get::<_, i64>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let transaction = connection.transaction()?;
+        for fish_id in fish_ids {
+            transaction.execute(
+                "INSERT OR IGNORE INTO daily_fish_preferences (
+                     local_date, fish_species_id, intensity, color, sweet, sour, salty
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    local_date,
+                    fish_id,
+                    rng.random_range(0.0..=1.0),
+                    rng.random_range(0.0..=1.0),
+                    rng.random_range(0.0..=1.0),
+                    rng.random_range(0.0..=1.0),
+                    rng.random_range(0.0..=1.0),
+                ],
+            )?;
+        }
+        transaction.commit()
+    }
+
+    pub fn load_fish_profiles(&self, local_date: &str) -> rusqlite::Result<Vec<FishProfile>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT f.id, f.name, f.price_per_kg,
+                    f.min_length_cm, f.max_length_cm,
+                    f.min_weight_kg, f.max_weight_kg,
+                    p.intensity, p.color, p.sweet, p.sour, p.salty
+             FROM fish_species f
+             JOIN daily_fish_preferences p ON p.fish_species_id = f.id
+             WHERE f.enabled = 1 AND p.local_date = ?1
+             ORDER BY f.id",
+        )?;
+        statement
+            .query_map([local_date], |row| {
+                Ok(FishProfile {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    price_per_kg: row.get(2)?,
+                    min_length_cm: row.get(3)?,
+                    max_length_cm: row.get(4)?,
+                    min_weight_kg: row.get(5)?,
+                    max_weight_kg: row.get(6)?,
+                    preference: FlavorVector {
+                        intensity: row.get(7)?,
+                        color: row.get(8)?,
+                        sweet: row.get(9)?,
+                        sour: row.get(10)?,
+                        salty: row.get(11)?,
+                    },
+                })
+            })?
+            .collect()
+    }
+
+    pub fn save_round_outcome(
+        &self,
+        round_number: u64,
+        round_started_at: Option<&str>,
+        settled_at: &str,
+        planned_duration_seconds: u64,
+        waiting_events: &[WaitingEvent],
+        preference_date: &str,
+        bait_name: &str,
+        outcome: &RoundOutcome,
+    ) -> rusqlite::Result<()> {
+        let (result_type, fish_id, length_cm, weight_kg, value, similarity, description) =
+            match outcome {
+                RoundOutcome::Caught {
+                    fish_id,
+                    length_cm,
+                    weight_kg,
+                    value,
+                    similarity,
+                    ..
+                } => (
+                    "caught",
+                    Some(*fish_id),
+                    Some(*length_cm),
+                    Some(*weight_kg),
+                    Some(*value),
+                    *similarity,
+                    outcome.summary(),
+                ),
+                RoundOutcome::Missed {
+                    reason,
+                    best_similarity,
+                    ..
+                } => (
+                    "missed",
+                    None,
+                    None,
+                    None,
+                    None,
+                    *best_similarity,
+                    reason.clone(),
+                ),
+            };
+        let outcome_json = serde_json::to_string(outcome)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+        let waiting_events_json = serde_json::to_string(waiting_events)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+        let disposition = if matches!(outcome, RoundOutcome::Caught { .. }) {
+            "pending"
+        } else {
+            "not_applicable"
+        };
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.execute(
+            "INSERT OR REPLACE INTO round_results (
+                 round_number, round_started_at, settled_at, planned_duration_seconds,
+                 waiting_events_json, preference_date, bait_name, result_type,
+                 fish_species_id, length_cm, weight_kg, value, similarity,
+                 description, outcome_json, disposition
+             ) VALUES (
+                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                 ?10, ?11, ?12, ?13, ?14, ?15, ?16
+             )",
+            params![
+                round_number.min(i64::MAX as u64) as i64,
+                round_started_at,
+                settled_at,
+                planned_duration_seconds.min(i64::MAX as u64) as i64,
+                waiting_events_json,
+                preference_date,
+                bait_name,
+                result_type,
+                fish_id,
+                length_cm,
+                weight_kg,
+                value,
+                similarity,
+                description,
+                outcome_json,
+                disposition,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_player_summary(&self) -> rusqlite::Result<PlayerSummary> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.query_row(
+            "SELECT p.body_weight_kg, p.money,
+                    (SELECT COUNT(*) FROM round_results WHERE disposition = 'pending'),
+                    p.eaten_count, p.sold_count
+             FROM player_state p
+             WHERE p.id = 1",
+            [],
+            |row| {
+                Ok(PlayerSummary {
+                    body_weight_kg: row.get(0)?,
+                    money: row.get(1)?,
+                    pending_catches: row.get::<_, i64>(2)?.max(0) as u64,
+                    eaten_count: row.get::<_, i64>(3)?.max(0) as u64,
+                    sold_count: row.get::<_, i64>(4)?.max(0) as u64,
+                })
+            },
+        )
+    }
+
+    pub fn load_fishing_log(&self, limit: u32) -> rusqlite::Result<Vec<FishingLogEntry>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT r.round_number, r.round_started_at, r.settled_at,
+                    r.planned_duration_seconds, r.waiting_events_json, r.bait_name,
+                    r.result_type, r.fish_species_id, f.name, r.length_cm,
+                    r.weight_kg, r.value, r.description, r.disposition,
+                    r.disposition_at, r.gained_weight_kg, r.gained_money
+             FROM round_results r
+             LEFT JOIN fish_species f ON f.id = r.fish_species_id
+             ORDER BY r.round_number DESC
+             LIMIT ?1",
+        )?;
+        statement
+            .query_map([limit.clamp(1, 200)], |row| {
+                let waiting_events_json: String = row.get(4)?;
+                Ok(FishingLogEntry {
+                    round_number: row.get::<_, i64>(0)?.max(0) as u64,
+                    round_started_at: row.get(1)?,
+                    settled_at: row.get(2)?,
+                    planned_duration_seconds: row.get::<_, i64>(3)?.max(0) as u64,
+                    waiting_events: serde_json::from_str(&waiting_events_json).unwrap_or_default(),
+                    bait_name: row.get(5)?,
+                    result_type: row.get(6)?,
+                    fish_id: row.get(7)?,
+                    fish_name: row.get(8)?,
+                    length_cm: row.get(9)?,
+                    weight_kg: row.get(10)?,
+                    value: row.get(11)?,
+                    description: row.get(12)?,
+                    disposition: row.get(13)?,
+                    disposition_at: row.get(14)?,
+                    gained_weight_kg: row.get(15)?,
+                    gained_money: row.get(16)?,
+                })
+            })?
+            .collect()
+    }
+
+    pub fn handle_catch(
+        &self,
+        round_number: u64,
+        action: &str,
+        eaten_ratio: f64,
+        handled_at: &str,
+    ) -> rusqlite::Result<PlayerSummary> {
+        let mut connection = self.connection.lock().expect("sqlite connection poisoned");
+        let transaction = connection.transaction()?;
+        let (weight_kg, value): (f64, f64) = transaction.query_row(
+            "SELECT weight_kg, value
+             FROM round_results
+             WHERE round_number = ?1 AND result_type = 'caught' AND disposition = 'pending'",
+            [round_number.min(i64::MAX as u64) as i64],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let (gained_weight, gained_money, eaten_delta, sold_delta) = match action {
+            "eat" => (weight_kg * eaten_ratio.clamp(0.0, 0.8), 0.0, 1, 0),
+            "sell" => (0.0, value.max(0.0), 0, 1),
+            _ => return Err(rusqlite::Error::InvalidQuery),
+        };
+        let disposition = if action == "eat" { "eaten" } else { "sold" };
+        let changed = transaction.execute(
+            "UPDATE round_results
+             SET disposition = ?1, disposition_at = ?2,
+                 gained_weight_kg = ?3, gained_money = ?4
+             WHERE round_number = ?5 AND disposition = 'pending'",
+            params![
+                disposition,
+                handled_at,
+                gained_weight,
+                gained_money,
+                round_number.min(i64::MAX as u64) as i64,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        transaction.execute(
+            "UPDATE player_state
+             SET body_weight_kg = body_weight_kg + ?1,
+                 money = money + ?2,
+                 eaten_count = eaten_count + ?3,
+                 sold_count = sold_count + ?4,
+                 updated_at = ?5
+             WHERE id = 1",
+            params![
+                gained_weight,
+                gained_money,
+                eaten_delta,
+                sold_delta,
+                handled_at
+            ],
+        )?;
+        transaction.commit()?;
+        drop(connection);
+        self.load_player_summary()
+    }
+
+    pub fn save(&self, state: &PersistedRoundState, updated_at: &str) -> rusqlite::Result<()> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.execute(
+            "INSERT INTO game_state (
+                 id, phase, is_fishing, round_started_at, scheduled_end_time,
+                 planned_duration_seconds, waiting_events_json, notified_events_json, round_number,
+                 selected_recipe_id, selected_recipe_name, last_result,
+                 state_revision, stop_after_settlement, updated_at
+             ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+             ON CONFLICT(id) DO UPDATE SET
+                 phase = excluded.phase,
+                 is_fishing = excluded.is_fishing,
+                 round_started_at = excluded.round_started_at,
+                 scheduled_end_time = excluded.scheduled_end_time,
+                 planned_duration_seconds = excluded.planned_duration_seconds,
+                 waiting_events_json = excluded.waiting_events_json,
+                 notified_events_json = excluded.notified_events_json,
+                 round_number = excluded.round_number,
+                 selected_recipe_id = excluded.selected_recipe_id,
+                 selected_recipe_name = excluded.selected_recipe_name,
+                 last_result = excluded.last_result,
+                 state_revision = excluded.state_revision,
+                 stop_after_settlement = excluded.stop_after_settlement,
+                 updated_at = excluded.updated_at",
+            params![
+                state.phase,
+                state.is_fishing,
+                state.round_started_at,
+                state.scheduled_end_time,
+                state.planned_duration_seconds.min(i64::MAX as u64) as i64,
+                state.waiting_events_json,
+                state.notified_events_json,
+                state.round_number.min(i64::MAX as u64) as i64,
+                state.selected_recipe_id.min(i64::MAX as u64) as i64,
+                state.selected_recipe_name,
+                state.last_result,
+                state.state_revision.min(i64::MAX as u64) as i64,
+                state.stop_after_settlement,
+                updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::{SeedableRng, rngs::StdRng};
+
+    #[test]
+    fn round_state_survives_a_sqlite_round_trip() {
+        let store = SqliteStore::open(Path::new(":memory:")).expect("open in-memory database");
+        let expected = PersistedRoundState {
+            phase: "waiting".to_owned(),
+            is_fishing: true,
+            round_started_at: Some("2026-08-18T07:52:30Z".to_owned()),
+            scheduled_end_time: Some("2026-08-18T08:00:00Z".to_owned()),
+            planned_duration_seconds: 450,
+            waiting_events_json: "[]".to_owned(),
+            notified_events_json: "[1,2]".to_owned(),
+            round_number: 42,
+            selected_recipe_id: 1,
+            selected_recipe_name: Some("随手拌的甜饵".to_owned()),
+            last_result: Some("水面很安静。".to_owned()),
+            state_revision: 7,
+            stop_after_settlement: false,
+        };
+
+        store
+            .save(&expected, "2026-08-18T07:52:30Z")
+            .expect("save state");
+        let actual = store.load().expect("load state").expect("saved row");
+        let catalog = store.load_event_catalog().expect("load event catalog");
+        let outcome_catalog = store
+            .load_outcome_text_catalog()
+            .expect("load outcome catalog");
+        let bait = store.load_bait_profile(1).expect("load default bait");
+        let mut first_rng = StdRng::seed_from_u64(10);
+        store
+            .ensure_daily_preferences("2026-08-18", &mut first_rng)
+            .expect("create daily preferences");
+        let first_preferences = store
+            .load_fish_profiles("2026-08-18")
+            .expect("load first preferences");
+        let mut second_rng = StdRng::seed_from_u64(99);
+        store
+            .ensure_daily_preferences("2026-08-18", &mut second_rng)
+            .expect("keep existing daily preferences");
+        let second_preferences = store
+            .load_fish_profiles("2026-08-18")
+            .expect("load stable preferences");
+        let test_outcome = RoundOutcome::Missed {
+            reason: "测试空军".to_owned(),
+            best_similarity: 0.7,
+            below_similarity_threshold: false,
+        };
+        store
+            .save_round_outcome(
+                42,
+                Some("2026-08-18T07:52:30Z"),
+                "2026-08-18T08:00:00Z",
+                450,
+                &[],
+                "2026-08-18",
+                &bait.name,
+                &test_outcome,
+            )
+            .expect("save round outcome");
+        let result_count: i64 = store
+            .connection
+            .lock()
+            .expect("sqlite connection")
+            .query_row("SELECT COUNT(*) FROM round_results", [], |row| row.get(0))
+            .expect("count round results");
+
+        assert_eq!(actual.phase, expected.phase);
+        assert_eq!(actual.is_fishing, expected.is_fishing);
+        assert_eq!(actual.round_started_at, expected.round_started_at);
+        assert_eq!(actual.scheduled_end_time, expected.scheduled_end_time);
+        assert_eq!(
+            actual.planned_duration_seconds,
+            expected.planned_duration_seconds
+        );
+        assert_eq!(actual.waiting_events_json, expected.waiting_events_json);
+        assert_eq!(actual.notified_events_json, expected.notified_events_json);
+        assert_eq!(actual.round_number, expected.round_number);
+        assert_eq!(actual.selected_recipe_id, expected.selected_recipe_id);
+        assert_eq!(actual.selected_recipe_name, expected.selected_recipe_name);
+        assert_eq!(actual.last_result, expected.last_result);
+        assert_eq!(actual.state_revision, expected.state_revision);
+        assert_eq!(actual.stop_after_settlement, expected.stop_after_settlement);
+        assert_eq!(catalog.counts(), (20, 20, 20));
+        assert_eq!(outcome_catalog.catches.len(), 20);
+        assert_eq!(outcome_catalog.misses.len(), 20);
+        assert_eq!(bait.name, "综合试钓饵");
+        assert_eq!(first_preferences.len(), 30);
+        assert_eq!(second_preferences.len(), 30);
+        assert_eq!(
+            first_preferences[0].preference,
+            second_preferences[0].preference
+        );
+        assert_eq!(result_count, 1);
+    }
+
+    #[test]
+    fn custom_bait_and_fish_records_round_trip() {
+        let store = SqliteStore::open(Path::new(":memory:")).expect("open in-memory database");
+        let ingredients = store
+            .load_bait_ingredients()
+            .expect("load bait ingredients");
+        assert_eq!(ingredients.len(), 24);
+
+        let profile = store
+            .save_custom_bait_recipe("两甜一酸", &[(1, 20.0), (4, 10.0)])
+            .expect("save custom bait");
+        let components = store
+            .load_recipe_components(2)
+            .expect("load recipe components");
+        assert_eq!(profile.name, "两甜一酸");
+        assert_eq!(components, vec![(1, 20.0), (4, 10.0)]);
+        assert!((0.0..=1.0).contains(&profile.flavor.sweet));
+        assert!(
+            store
+                .save_custom_bait_recipe("无效配方", &[(999, 1.0)])
+                .is_err()
+        );
+
+        let caught = RoundOutcome::Caught {
+            fish_id: 1,
+            fish_name: "鲤鱼".to_owned(),
+            length_cm: 28.4,
+            weight_kg: 0.62,
+            value: 7.44,
+            similarity: 0.86,
+            description: "浮标一沉，鱼线轻轻绷直。".to_owned(),
+        };
+        store
+            .save_round_outcome(
+                1,
+                Some("2026-08-18T07:45:00Z"),
+                "2026-08-18T08:00:00Z",
+                900,
+                &[],
+                "2026-08-18",
+                &profile.name,
+                &caught,
+            )
+            .expect("save caught outcome");
+        let records = store.load_fish_records().expect("load fish records");
+        assert_eq!(records.len(), 30);
+        assert_eq!(records[0].caught_count, 1);
+        assert_eq!(records[0].max_length_cm, Some(28.4));
+        assert_eq!(records[0].max_weight_kg, Some(0.62));
+        assert!(
+            records[0]
+                .latest_description
+                .as_deref()
+                .is_some_and(|text| text.contains("鲤鱼"))
+        );
+        assert_eq!(records[1].caught_count, 0);
+
+        let pending = store.load_player_summary().expect("load player summary");
+        assert_eq!(pending.body_weight_kg, 60.0);
+        assert_eq!(pending.pending_catches, 1);
+        let after_eating = store
+            .handle_catch(1, "eat", 0.5, "2026-08-18T08:01:00Z")
+            .expect("eat caught fish");
+        assert_eq!(after_eating.pending_catches, 0);
+        assert_eq!(after_eating.eaten_count, 1);
+        assert!((after_eating.body_weight_kg - 60.31).abs() < 0.000_001);
+        assert!(
+            store
+                .handle_catch(1, "sell", 0.0, "2026-08-18T08:02:00Z")
+                .is_err()
+        );
+
+        store
+            .save_round_outcome(
+                2,
+                Some("2026-08-18T08:05:00Z"),
+                "2026-08-18T08:20:00Z",
+                900,
+                &[],
+                "2026-08-18",
+                &profile.name,
+                &caught,
+            )
+            .expect("save second catch");
+        let after_selling = store
+            .handle_catch(2, "sell", 0.0, "2026-08-18T08:21:00Z")
+            .expect("sell caught fish");
+        assert_eq!(after_selling.sold_count, 1);
+        assert!((after_selling.money - 7.44).abs() < 0.000_001);
+        let log = store.load_fishing_log(100).expect("load fishing log");
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].round_number, 2);
+        assert_eq!(log[0].disposition, "sold");
+        assert_eq!(log[1].disposition, "eaten");
+    }
+
+    #[test]
+    fn app_settings_survive_a_sqlite_round_trip() {
+        let store = SqliteStore::open(Path::new(":memory:")).expect("open in-memory database");
+        assert_eq!(
+            store.load_app_settings().expect("load default settings"),
+            StoredAppSettings::default()
+        );
+        let expected = StoredAppSettings {
+            notifications_enabled: false,
+            bobber_visible: false,
+            bobber_always_on_top: false,
+            theme: "dark".to_owned(),
+            reduced_motion: true,
+        };
+        store
+            .save_app_settings(&expected, "2026-08-18T09:00:00Z")
+            .expect("save settings");
+        assert_eq!(
+            store.load_app_settings().expect("reload settings"),
+            expected
+        );
+    }
+}

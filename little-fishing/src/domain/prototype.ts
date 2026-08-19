@@ -1,0 +1,153 @@
+export type FishingPhase = "stopped" | "waiting" | "settling";
+
+export interface WaitingEvent {
+  id: number;
+  category: "environment" | "water" | "tackle";
+  scheduledAt: string;
+  description: string;
+}
+
+export interface PrototypeState {
+  phase: FishingPhase;
+  isFishing: boolean;
+  roundStartedAt: string | null;
+  scheduledEndTime: string | null;
+  plannedDurationSeconds: number;
+  waitingEvents: WaitingEvent[];
+  roundNumber: number;
+  selectedRecipeId: number;
+  selectedRecipeName: string | null;
+  lastResult: string | null;
+  stateRevision: number;
+}
+
+export const initialPrototypeState: PrototypeState = {
+  phase: "stopped",
+  isFishing: false,
+  roundStartedAt: null,
+  scheduledEndTime: null,
+  plannedDurationSeconds: 0,
+  waitingEvents: [],
+  roundNumber: 0,
+  selectedRecipeId: 1,
+  selectedRecipeName: "综合试钓饵",
+  lastResult: null,
+  stateRevision: 0,
+};
+
+export function createMockWaitingState(previous: PrototypeState, now = Date.now()): PrototypeState {
+  const roll = Math.floor(Math.random() * 10_000);
+  const [firstTick, lastTick] = roll < 150 ? [1, 9]
+    : roll < 3_550 ? [10, 29]
+      : roll < 6_950 ? [30, 59]
+        : roll < 8_950 ? [60, 89]
+          : roll < 9_850 ? [90, 120]
+            : [121, 240];
+  const durationSeconds = (firstTick + Math.floor(Math.random() * (lastTick - firstTick + 1))) * 30;
+  return {
+    ...previous,
+    phase: "waiting",
+    isFishing: true,
+    roundStartedAt: new Date(now).toISOString(),
+    scheduledEndTime: new Date(now + durationSeconds * 1_000).toISOString(),
+    plannedDurationSeconds: durationSeconds,
+    waitingEvents: [],
+    roundNumber: previous.roundNumber + 1,
+    stateRevision: previous.stateRevision + 1,
+  };
+}
+
+export interface BaitIngredient {
+  id: number;
+  name: string;
+}
+
+export interface BaitRecipeComponent {
+  ingredientId: number;
+  percentage: number;
+}
+
+export interface BaitEditorData {
+  ingredients: BaitIngredient[];
+  recipeName: string;
+  components: BaitRecipeComponent[];
+  canEdit: boolean;
+}
+
+export interface FishRecord {
+  fishId: number;
+  name: string;
+  pricePerKg: number;
+  caughtCount: number;
+  maxLengthCm: number | null;
+  maxWeightKg: number | null;
+  latestDescription: string | null;
+}
+
+export interface PlayerSummary {
+  bodyWeightKg: number;
+  money: number;
+  pendingCatches: number;
+  eatenCount: number;
+  soldCount: number;
+}
+
+export type CatchDisposition = "pending" | "eaten" | "sold" | "not_applicable";
+
+export interface FishingLogEntry {
+  roundNumber: number;
+  roundStartedAt: string | null;
+  settledAt: string;
+  plannedDurationSeconds: number;
+  waitingEvents: WaitingEvent[];
+  baitName: string;
+  resultType: "caught" | "missed";
+  fishId: number | null;
+  fishName: string | null;
+  lengthCm: number | null;
+  weightKg: number | null;
+  value: number | null;
+  description: string;
+  disposition: CatchDisposition;
+  dispositionAt: string | null;
+  gainedWeightKg: number | null;
+  gainedMoney: number | null;
+}
+
+export interface BobberToastPayload {
+  title: string;
+  body: string;
+}
+
+export type AppTheme = "system" | "light" | "dark";
+
+export interface AppSettings {
+  notificationsEnabled: boolean;
+  bobberVisible: boolean;
+  bobberAlwaysOnTop: boolean;
+  theme: AppTheme;
+  reducedMotion: boolean;
+  autostartEnabled: boolean;
+}
+
+export const defaultAppSettings: AppSettings = {
+  notificationsEnabled: true,
+  bobberVisible: true,
+  bobberAlwaysOnTop: true,
+  theme: "system",
+  reducedMotion: false,
+  autostartEnabled: false,
+};
+
+export function createMockStoppedState(previous: PrototypeState): PrototypeState {
+  return {
+    ...previous,
+    phase: "stopped",
+    isFishing: false,
+    roundStartedAt: null,
+    scheduledEndTime: null,
+    plannedDurationSeconds: 0,
+    waitingEvents: [],
+    stateRevision: previous.stateRevision + 1,
+  };
+}
