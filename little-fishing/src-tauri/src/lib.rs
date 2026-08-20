@@ -64,6 +64,7 @@ struct PrototypeRoundState {
     round_started_at: Option<DateTime<Utc>>,
     scheduled_end_time: Option<DateTime<Utc>>,
     planned_duration_seconds: u64,
+    status_text: String,
     waiting_events: Vec<WaitingEvent>,
     notified_waiting_event_ids: BTreeSet<u32>,
     round_number: u64,
@@ -83,6 +84,7 @@ impl Default for PrototypeRoundState {
             round_started_at: None,
             scheduled_end_time: None,
             planned_duration_seconds: 0,
+            status_text: "岸边很安静，随时可以开始。".to_owned(),
             waiting_events: Vec::new(),
             notified_waiting_event_ids: BTreeSet::new(),
             round_number: 0,
@@ -110,6 +112,7 @@ impl PrototypeRoundState {
                 .and_then(|time| DateTime::parse_from_rfc3339(&time).ok())
                 .map(|time| time.with_timezone(&Utc)),
             planned_duration_seconds: value.planned_duration_seconds,
+            status_text: value.status_text,
             waiting_events: serde_json::from_str(&value.waiting_events_json).unwrap_or_default(),
             notified_waiting_event_ids: serde_json::from_str(&value.notified_events_json)
                 .unwrap_or_default(),
@@ -134,6 +137,7 @@ impl PrototypeRoundState {
                 .scheduled_end_time
                 .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true)),
             planned_duration_seconds: self.planned_duration_seconds,
+            status_text: self.status_text.clone(),
             waiting_events_json: serde_json::to_string(&self.waiting_events)
                 .unwrap_or_else(|_| "[]".to_owned()),
             notified_events_json: serde_json::to_string(&self.notified_waiting_event_ids)
@@ -187,6 +191,7 @@ impl PrototypeRoundState {
                 .scheduled_end_time
                 .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true)),
             planned_duration_seconds: self.planned_duration_seconds,
+            status_text: self.status_text.clone(),
             waiting_events: self.waiting_events.clone(),
             round_number: self.round_number,
             selected_recipe_id: self.selected_recipe_id,
@@ -217,6 +222,7 @@ impl PrototypeRoundState {
         self.round_started_at = Some(now);
         self.scheduled_end_time = Some(now + ChronoDuration::seconds(plan.duration_seconds));
         self.planned_duration_seconds = plan.duration_seconds as u64;
+        self.status_text = plan.status_text;
         self.waiting_events = plan.waiting_events;
         self.notified_waiting_event_ids.clear();
     }
@@ -266,6 +272,7 @@ struct PrototypeSnapshot {
     round_started_at: Option<String>,
     scheduled_end_time: Option<String>,
     planned_duration_seconds: u64,
+    status_text: String,
     waiting_events: Vec<WaitingEvent>,
     round_number: u64,
     selected_recipe_id: u64,
@@ -306,6 +313,7 @@ struct AppSettings {
     theme: String,
     reduced_motion: bool,
     autostart_enabled: bool,
+    bobber_skin: String,
 }
 
 impl Default for AppSettings {
@@ -321,6 +329,14 @@ impl AppSettings {
         } else {
             "system".to_owned()
         };
+        let bobber_skin = if matches!(
+            value.bobber_skin.as_str(),
+            "orange" | "gray" | "calico" | "siamese"
+        ) {
+            value.bobber_skin
+        } else {
+            "orange".to_owned()
+        };
         Self {
             notifications_enabled: value.notifications_enabled,
             bobber_visible: value.bobber_visible,
@@ -328,6 +344,7 @@ impl AppSettings {
             theme,
             reduced_motion: value.reduced_motion,
             autostart_enabled,
+            bobber_skin,
         }
     }
 
@@ -338,6 +355,7 @@ impl AppSettings {
             bobber_always_on_top: self.bobber_always_on_top,
             theme: self.theme.clone(),
             reduced_motion: self.reduced_motion,
+            bobber_skin: self.bobber_skin.clone(),
         }
     }
 }
@@ -362,6 +380,7 @@ struct LifecycleState {
 #[derive(Default)]
 struct ToastState {
     sequence: AtomicU64,
+    latest: Mutex<Option<BobberToastPayload>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -544,6 +563,13 @@ fn send_interactive_notification(app: &AppHandle, title: &str, body: &str) -> Re
         .sequence
         .fetch_add(1, Ordering::SeqCst)
         .saturating_add(1);
+    *app.state::<ToastState>()
+        .latest
+        .lock()
+        .expect("toast state poisoned") = Some(BobberToastPayload {
+        title: title.to_owned(),
+        body: body.to_owned(),
+    });
     place_toast_near_bobber(app);
     toast
         .emit(
@@ -562,6 +588,10 @@ fn send_interactive_notification(app: &AppHandle, title: &str, body: &str) -> Re
             && let Some(toast) = app.get_webview_window("toast")
         {
             let _ = toast.hide();
+            *app.state::<ToastState>()
+                .latest
+                .lock()
+                .expect("toast state poisoned") = None;
         }
     });
     Ok(())
@@ -785,7 +815,9 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 fn waiting_event_notification_title(category: &str) -> &'static str {
     match category {
         "water" => "小小钓鱼 · 浮标有动静",
-        "tackle" => "小小钓鱼 · 钓组有动静",
+        "tackle" => "小小钓鱼 · 钓组出了点状况",
+        "wildlife" => "小小钓鱼 · 岸边来客",
+        "story" => "小小钓鱼 · 一点小插曲",
         _ => "小小钓鱼 · 岸边有动静",
     }
 }
@@ -1057,6 +1089,12 @@ fn update_app_settings(app: AppHandle, mut settings: AppSettings) -> Result<AppS
     if !matches!(settings.theme.as_str(), "system" | "light" | "dark") {
         return Err("未知的界面主题".to_owned());
     }
+    if !matches!(
+        settings.bobber_skin.as_str(),
+        "orange" | "gray" | "calico" | "siamese"
+    ) {
+        return Err("未知的悬浮猫咪皮肤".to_owned());
+    }
     let autostart = app.autolaunch();
     let autostart_enabled = autostart.is_enabled().map_err(|error| error.to_string())?;
     if settings.autostart_enabled != autostart_enabled {
@@ -1110,10 +1148,23 @@ fn send_test_notification(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_pending_bobber_toast(app: AppHandle) -> Option<BobberToastPayload> {
+    app.state::<ToastState>()
+        .latest
+        .lock()
+        .expect("toast state poisoned")
+        .clone()
+}
+
+#[tauri::command]
 fn activate_bobber_toast(app: AppHandle) {
     app.state::<ToastState>()
         .sequence
         .fetch_add(1, Ordering::SeqCst);
+    *app.state::<ToastState>()
+        .latest
+        .lock()
+        .expect("toast state poisoned") = None;
     if let Some(toast) = app.get_webview_window("toast") {
         let _ = toast.hide();
     }
@@ -1268,6 +1319,7 @@ pub fn run() {
             show_bobber_context_menu,
             request_app_exit,
             send_test_notification,
+            get_pending_bobber_toast,
             activate_bobber_toast,
         ])
         .run(tauri::generate_context!())
@@ -1315,6 +1367,7 @@ mod tests {
             round_started_at: Some(now - ChronoDuration::hours(12)),
             scheduled_end_time: Some(now - ChronoDuration::hours(12)),
             planned_duration_seconds: 3_600,
+            status_text: "正在等鱼。".to_owned(),
             waiting_events: Vec::new(),
             notified_waiting_event_ids: BTreeSet::new(),
             round_number: 9,
@@ -1354,6 +1407,7 @@ mod tests {
             round_started_at: Some(now - ChronoDuration::minutes(10)),
             scheduled_end_time: Some(now + ChronoDuration::minutes(10)),
             planned_duration_seconds: 1_200,
+            status_text: "正在等鱼。".to_owned(),
             waiting_events: vec![WaitingEvent {
                 id: 1,
                 category: "water".to_owned(),

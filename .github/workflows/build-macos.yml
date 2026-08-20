@@ -1,0 +1,61 @@
+name: Build macOS DMG
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/macos-package
+
+permissions:
+  contents: read
+
+jobs:
+  build-universal-dmg:
+    name: Universal macOS DMG
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # Ad-hoc signing keeps local test builds self-consistent without requiring
+      # an Apple Developer certificate. Public distribution still needs notarization.
+      APPLE_SIGNING_IDENTITY: "-"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: little-fishing/package-lock.json
+
+      - name: Set up Rust targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: little-fishing/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: little-fishing
+        run: npm ci
+
+      - name: Check frontend
+        working-directory: little-fishing
+        run: npm run check
+
+      - name: Build universal DMG
+        working-directory: little-fishing
+        run: npm run tauri build -- --target universal-apple-darwin --bundles dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: little-fishing-macos-universal
+          path: little-fishing/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14

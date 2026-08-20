@@ -49,6 +49,29 @@ const CATCH_DESCRIPTIONS: [&str; 20] = [
     "这一口没有太多预告，却给了这一竿一个完整结尾。",
 ];
 
+const FISH_FEATURE_DESCRIPTIONS: [&str; 20] = [
+    "鳞片在光下泛着一层很细的亮色。",
+    "背部颜色偏深，腹侧则明显浅了一截。",
+    "尾鳍边缘完整，摆动起来很有力。",
+    "体侧留着几道不太规则的浅色纹路。",
+    "鱼身圆润结实，摸起来很有分量。",
+    "嘴边还沾着一点没有散开的饵料。",
+    "背鳍竖得很精神，上岸后仍不肯放松。",
+    "体色比常见的同类略暗，藏在水下应该很不起眼。",
+    "腹部饱满，整条鱼的状态看起来很好。",
+    "尾柄很粗，难怪收线时挣动得格外明显。",
+    "鳞片排列细密，靠近侧线的位置颜色更深。",
+    "鱼鳍带着一点半透明的暖色，边缘没有破损。",
+    "头部宽厚，眼睛在离水后仍显得十分警觉。",
+    "体形修长，游动留下的力道又快又直接。",
+    "身上有几处自然的小斑点，像落下的水墨。",
+    "腹鳍颜色比身体更鲜明，很容易一眼认出来。",
+    "鳃盖边缘泛着淡淡金属光，转动时才会出现。",
+    "鱼身摸起来格外光滑，几乎没有粗糙感。",
+    "体侧的颜色从背到腹缓慢过渡，没有明显分界。",
+    "这条鱼没有特别夸张的外表，但体态十分匀称。",
+];
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlavorVector {
@@ -112,6 +135,7 @@ pub struct FishProfile {
 pub struct OutcomeTextCatalog {
     pub catches: Vec<String>,
     pub misses: Vec<String>,
+    pub features: Vec<String>,
 }
 
 pub struct FishSpeciesSeed {
@@ -173,6 +197,7 @@ pub fn outcome_description_seeds() -> Vec<(&'static str, u32, &'static str)> {
     [
         ("caught", CATCH_DESCRIPTIONS.as_slice()),
         ("missed", MISS_DESCRIPTIONS.as_slice()),
+        ("feature", FISH_FEATURE_DESCRIPTIONS.as_slice()),
     ]
     .into_iter()
     .flat_map(|(category, descriptions)| {
@@ -867,11 +892,17 @@ pub fn resolve_round<R: Rng + ?Sized>(
     .cbrt();
     let length_cm =
         profile.min_length_cm + (profile.max_length_cm - profile.min_length_cm) * weight_progress;
-    let description = texts
+    let process_description = texts
         .catches
         .choose(rng)
         .cloned()
         .unwrap_or_else(|| "浮标下沉，这一竿钓到了鱼。".to_owned());
+    let feature_description = texts
+        .features
+        .choose(rng)
+        .cloned()
+        .unwrap_or_else(|| "这条鱼的体态很匀称。".to_owned());
+    let description = format!("{process_description} {feature_description}");
 
     RoundOutcome::Caught {
         fish_id: profile.id,
@@ -919,6 +950,7 @@ mod tests {
         let texts = OutcomeTextCatalog {
             catches: vec!["中鱼".to_owned()],
             misses: vec!["空军".to_owned()],
+            features: vec!["特征".to_owned()],
         };
         let mut rng = StdRng::seed_from_u64(1);
         let outcome = resolve_round(
@@ -943,6 +975,7 @@ mod tests {
     fn each_outcome_category_has_twenty_descriptions() {
         assert_eq!(CATCH_DESCRIPTIONS.len(), 20);
         assert_eq!(MISS_DESCRIPTIONS.len(), 20);
-        assert_eq!(outcome_description_seeds().len(), 40);
+        assert_eq!(FISH_FEATURE_DESCRIPTIONS.len(), 20);
+        assert_eq!(outcome_description_seeds().len(), 60);
     }
 }

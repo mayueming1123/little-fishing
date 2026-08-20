@@ -2,7 +2,7 @@ export type FishingPhase = "stopped" | "waiting" | "settling";
 
 export interface WaitingEvent {
   id: number;
-  category: "environment" | "water" | "tackle";
+  category: "environment" | "water" | "tackle" | "wildlife" | "story";
   scheduledAt: string;
   description: string;
 }
@@ -13,6 +13,7 @@ export interface PrototypeState {
   roundStartedAt: string | null;
   scheduledEndTime: string | null;
   plannedDurationSeconds: number;
+  statusText: string;
   waitingEvents: WaitingEvent[];
   roundNumber: number;
   selectedRecipeId: number;
@@ -27,6 +28,7 @@ export const initialPrototypeState: PrototypeState = {
   roundStartedAt: null,
   scheduledEndTime: null,
   plannedDurationSeconds: 0,
+  statusText: "岸边很安静，随时可以开始。",
   waitingEvents: [],
   roundNumber: 0,
   selectedRecipeId: 1,
@@ -51,6 +53,7 @@ export function createMockWaitingState(previous: PrototypeState, now = Date.now(
     roundStartedAt: new Date(now).toISOString(),
     scheduledEndTime: new Date(now + durationSeconds * 1_000).toISOString(),
     plannedDurationSeconds: durationSeconds,
+    statusText: "鱼饵已经下水，接下来交给耐心和一点运气。",
     waitingEvents: [],
     roundNumber: previous.roundNumber + 1,
     stateRevision: previous.stateRevision + 1,
@@ -120,6 +123,7 @@ export interface BobberToastPayload {
 }
 
 export type AppTheme = "system" | "light" | "dark";
+export type BobberSkinId = "orange" | "gray" | "calico" | "siamese";
 
 export interface AppSettings {
   notificationsEnabled: boolean;
@@ -128,6 +132,7 @@ export interface AppSettings {
   theme: AppTheme;
   reducedMotion: boolean;
   autostartEnabled: boolean;
+  bobberSkin: BobberSkinId;
 }
 
 export const defaultAppSettings: AppSettings = {
@@ -137,6 +142,7 @@ export const defaultAppSettings: AppSettings = {
   theme: "system",
   reducedMotion: false,
   autostartEnabled: false,
+  bobberSkin: "orange",
 };
 
 export function createMockStoppedState(previous: PrototypeState): PrototypeState {

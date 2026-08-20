@@ -15,6 +15,7 @@ pub struct PersistedRoundState {
     pub round_started_at: Option<String>,
     pub scheduled_end_time: Option<String>,
     pub planned_duration_seconds: u64,
+    pub status_text: String,
     pub waiting_events_json: String,
     pub notified_events_json: String,
     pub round_number: u64,
@@ -32,6 +33,7 @@ pub struct StoredAppSettings {
     pub bobber_always_on_top: bool,
     pub theme: String,
     pub reduced_motion: bool,
+    pub bobber_skin: String,
 }
 
 impl Default for StoredAppSettings {
@@ -42,6 +44,7 @@ impl Default for StoredAppSettings {
             bobber_always_on_top: true,
             theme: "system".to_owned(),
             reduced_motion: false,
+            bobber_skin: "orange".to_owned(),
         }
     }
 }
@@ -96,6 +99,7 @@ impl SqliteStore {
                  round_started_at TEXT,
                  scheduled_end_time TEXT,
                  planned_duration_seconds INTEGER NOT NULL DEFAULT 0,
+                 status_text TEXT NOT NULL DEFAULT '浮标已经就位，正在慢慢等鱼。',
                  waiting_events_json TEXT NOT NULL DEFAULT '[]',
                  notified_events_json TEXT NOT NULL DEFAULT '[]',
                  round_number INTEGER NOT NULL,
@@ -208,14 +212,17 @@ impl SqliteStore {
                  bobber_always_on_top INTEGER NOT NULL DEFAULT 1,
                  theme TEXT NOT NULL DEFAULT 'system',
                  reduced_motion INTEGER NOT NULL DEFAULT 0,
+                 bobber_skin TEXT NOT NULL DEFAULT 'orange',
                  updated_at TEXT NOT NULL
              );",
         )?;
         for (category, sequence, description) in event_description_seeds() {
             connection.execute(
-                "INSERT OR IGNORE INTO waiting_event_descriptions
+                "INSERT INTO waiting_event_descriptions
                      (category, sequence, description, enabled)
-                 VALUES (?1, ?2, ?3, 1)",
+                 VALUES (?1, ?2, ?3, 1)
+                 ON CONFLICT(category, sequence) DO UPDATE SET
+                     description = excluded.description",
                 params![category, sequence, description],
             )?;
         }
@@ -302,6 +309,12 @@ impl SqliteStore {
         Self::ensure_column(
             &connection,
             "game_state",
+            "status_text",
+            "TEXT NOT NULL DEFAULT '浮标已经就位，正在慢慢等鱼。'",
+        )?;
+        Self::ensure_column(
+            &connection,
+            "game_state",
             "waiting_events_json",
             "TEXT NOT NULL DEFAULT '[]'",
         )?;
@@ -339,6 +352,12 @@ impl SqliteStore {
         Self::ensure_column(&connection, "round_results", "disposition_at", "TEXT")?;
         Self::ensure_column(&connection, "round_results", "gained_weight_kg", "REAL")?;
         Self::ensure_column(&connection, "round_results", "gained_money", "REAL")?;
+        Self::ensure_column(
+            &connection,
+            "app_settings",
+            "bobber_skin",
+            "TEXT NOT NULL DEFAULT 'orange'",
+        )?;
         connection.execute(
             "UPDATE round_results SET disposition = 'not_applicable'
              WHERE result_type != 'caught' AND disposition = 'pending'",
@@ -353,8 +372,8 @@ impl SqliteStore {
         connection.execute(
             "INSERT OR IGNORE INTO app_settings (
                  id, notifications_enabled, bobber_visible,
-                 bobber_always_on_top, theme, reduced_motion, updated_at
-             ) VALUES (1, 1, 1, 1, 'system', 0, '1970-01-01T00:00:00Z')",
+                 bobber_always_on_top, theme, reduced_motion, bobber_skin, updated_at
+             ) VALUES (1, 1, 1, 1, 'system', 0, 'orange', '1970-01-01T00:00:00Z')",
             [],
         )?;
         Ok(Self {
@@ -387,7 +406,7 @@ impl SqliteStore {
         connection
             .query_row(
                 "SELECT phase, is_fishing, round_started_at, scheduled_end_time,
-                        planned_duration_seconds, waiting_events_json,
+                        planned_duration_seconds, status_text, waiting_events_json,
                         notified_events_json, round_number,
                         selected_recipe_id, selected_recipe_name, last_result,
                         state_revision, stop_after_settlement
@@ -401,14 +420,15 @@ impl SqliteStore {
                         round_started_at: row.get(2)?,
                         scheduled_end_time: row.get(3)?,
                         planned_duration_seconds: row.get::<_, i64>(4)?.max(0) as u64,
-                        waiting_events_json: row.get(5)?,
-                        notified_events_json: row.get(6)?,
-                        round_number: row.get::<_, i64>(7)?.max(0) as u64,
-                        selected_recipe_id: row.get::<_, i64>(8)?.max(1) as u64,
-                        selected_recipe_name: row.get(9)?,
-                        last_result: row.get(10)?,
-                        state_revision: row.get::<_, i64>(11)?.max(0) as u64,
-                        stop_after_settlement: row.get(12)?,
+                        status_text: row.get(5)?,
+                        waiting_events_json: row.get(6)?,
+                        notified_events_json: row.get(7)?,
+                        round_number: row.get::<_, i64>(8)?.max(0) as u64,
+                        selected_recipe_id: row.get::<_, i64>(9)?.max(1) as u64,
+                        selected_recipe_name: row.get(10)?,
+                        last_result: row.get(11)?,
+                        state_revision: row.get::<_, i64>(12)?.max(0) as u64,
+                        stop_after_settlement: row.get(13)?,
                     })
                 },
             )
@@ -419,7 +439,7 @@ impl SqliteStore {
         let connection = self.connection.lock().expect("sqlite connection poisoned");
         connection.query_row(
             "SELECT notifications_enabled, bobber_visible,
-                    bobber_always_on_top, theme, reduced_motion
+                    bobber_always_on_top, theme, reduced_motion, bobber_skin
              FROM app_settings WHERE id = 1",
             [],
             |row| {
@@ -429,6 +449,7 @@ impl SqliteStore {
                     bobber_always_on_top: row.get(2)?,
                     theme: row.get(3)?,
                     reduced_motion: row.get(4)?,
+                    bobber_skin: row.get(5)?,
                 })
             },
         )
@@ -444,7 +465,7 @@ impl SqliteStore {
             "UPDATE app_settings
              SET notifications_enabled = ?1, bobber_visible = ?2,
                  bobber_always_on_top = ?3, theme = ?4,
-                 reduced_motion = ?5, updated_at = ?6
+                 reduced_motion = ?5, bobber_skin = ?6, updated_at = ?7
              WHERE id = 1",
             params![
                 settings.notifications_enabled,
@@ -452,6 +473,7 @@ impl SqliteStore {
                 settings.bobber_always_on_top,
                 settings.theme,
                 settings.reduced_motion,
+                settings.bobber_skin,
                 updated_at,
             ],
         )?;
@@ -469,22 +491,36 @@ impl SqliteStore {
         let rows = statement.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
+        let mut status = Vec::new();
         let mut ambient = Vec::new();
         let mut water = Vec::new();
         let mut tackle = Vec::new();
+        let mut wildlife = Vec::new();
+        let mut story = Vec::new();
         for row in rows {
             let (category, description) = row?;
             match category.as_str() {
+                "status" => status.push(description),
                 "environment" => ambient.push(description),
                 "water" => water.push(description),
                 "tackle" => tackle.push(description),
+                "wildlife" => wildlife.push(description),
+                "story" => story.push(description),
                 _ => {}
             }
         }
-        if ambient.is_empty() || water.is_empty() || tackle.is_empty() {
+        if status.is_empty()
+            || ambient.is_empty()
+            || water.is_empty()
+            || tackle.is_empty()
+            || wildlife.is_empty()
+            || story.is_empty()
+        {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        Ok(EventCatalog::new(ambient, water, tackle))
+        Ok(EventCatalog::new(
+            status, ambient, water, tackle, wildlife, story,
+        ))
     }
 
     pub fn load_outcome_text_catalog(&self) -> rusqlite::Result<OutcomeTextCatalog> {
@@ -500,18 +536,24 @@ impl SqliteStore {
         })?;
         let mut catches = Vec::new();
         let mut misses = Vec::new();
+        let mut features = Vec::new();
         for row in rows {
             let (category, description) = row?;
             match category.as_str() {
                 "caught" => catches.push(description),
                 "missed" => misses.push(description),
+                "feature" => features.push(description),
                 _ => {}
             }
         }
-        if catches.is_empty() || misses.is_empty() {
+        if catches.is_empty() || misses.is_empty() || features.is_empty() {
             return Err(rusqlite::Error::InvalidQuery);
         }
-        Ok(OutcomeTextCatalog { catches, misses })
+        Ok(OutcomeTextCatalog {
+            catches,
+            misses,
+            features,
+        })
     }
 
     pub fn load_bait_profile(&self, recipe_id: i64) -> rusqlite::Result<BaitProfile> {
@@ -917,16 +959,17 @@ impl SqliteStore {
         connection.execute(
             "INSERT INTO game_state (
                  id, phase, is_fishing, round_started_at, scheduled_end_time,
-                 planned_duration_seconds, waiting_events_json, notified_events_json, round_number,
+                 planned_duration_seconds, status_text, waiting_events_json, notified_events_json, round_number,
                  selected_recipe_id, selected_recipe_name, last_result,
                  state_revision, stop_after_settlement, updated_at
-             ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+             ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
              ON CONFLICT(id) DO UPDATE SET
                  phase = excluded.phase,
                  is_fishing = excluded.is_fishing,
                  round_started_at = excluded.round_started_at,
                  scheduled_end_time = excluded.scheduled_end_time,
                  planned_duration_seconds = excluded.planned_duration_seconds,
+                 status_text = excluded.status_text,
                  waiting_events_json = excluded.waiting_events_json,
                  notified_events_json = excluded.notified_events_json,
                  round_number = excluded.round_number,
@@ -942,6 +985,7 @@ impl SqliteStore {
                 state.round_started_at,
                 state.scheduled_end_time,
                 state.planned_duration_seconds.min(i64::MAX as u64) as i64,
+                state.status_text,
                 state.waiting_events_json,
                 state.notified_events_json,
                 state.round_number.min(i64::MAX as u64) as i64,
@@ -963,6 +1007,67 @@ mod tests {
     use rand::{SeedableRng, rngs::StdRng};
 
     #[test]
+    fn previous_database_gains_status_and_expanded_event_catalog() {
+        let database_path = std::env::temp_dir().join(format!(
+            "little-fishing-migration-{}-{}.sqlite3",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        {
+            let connection = Connection::open(&database_path).expect("create previous database");
+            connection
+                .execute_batch(
+                    "CREATE TABLE game_state (
+                         id INTEGER PRIMARY KEY CHECK (id = 1), phase TEXT NOT NULL,
+                         is_fishing INTEGER NOT NULL, round_started_at TEXT,
+                         scheduled_end_time TEXT, planned_duration_seconds INTEGER NOT NULL DEFAULT 0,
+                         waiting_events_json TEXT NOT NULL DEFAULT '[]',
+                         notified_events_json TEXT NOT NULL DEFAULT '[]', round_number INTEGER NOT NULL,
+                         selected_recipe_id INTEGER NOT NULL DEFAULT 1, selected_recipe_name TEXT,
+                         last_result TEXT, state_revision INTEGER NOT NULL,
+                         stop_after_settlement INTEGER NOT NULL, updated_at TEXT NOT NULL
+                     );
+                     INSERT INTO game_state VALUES (
+                         1, 'waiting', 1, '2026-08-18T08:00:00Z', '2026-08-18T08:15:00Z',
+                         900, '[]', '[]', 3, 1, '综合试钓饵', NULL, 1, 0, '2026-08-18T08:00:00Z'
+                     );
+                     CREATE TABLE waiting_event_descriptions (
+                         category TEXT NOT NULL, sequence INTEGER NOT NULL,
+                         description TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1,
+                         PRIMARY KEY (category, sequence)
+                     );
+                     INSERT INTO waiting_event_descriptions VALUES ('tackle', 1, '旧版钓组文案', 1);
+                     CREATE TABLE app_settings (
+                         id INTEGER PRIMARY KEY CHECK (id = 1),
+                         notifications_enabled INTEGER NOT NULL DEFAULT 1,
+                         bobber_visible INTEGER NOT NULL DEFAULT 1,
+                         bobber_always_on_top INTEGER NOT NULL DEFAULT 1,
+                         theme TEXT NOT NULL DEFAULT 'system',
+                         reduced_motion INTEGER NOT NULL DEFAULT 0,
+                         updated_at TEXT NOT NULL
+                     );
+                     INSERT INTO app_settings VALUES (
+                         1, 1, 1, 1, 'system', 0, '2026-08-18T08:00:00Z'
+                     );",
+                )
+                .expect("seed previous schema");
+        }
+
+        let store = SqliteStore::open(&database_path).expect("migrate previous database");
+        let state = store
+            .load()
+            .expect("load migrated state")
+            .expect("state row");
+        let catalog = store.load_event_catalog().expect("load expanded events");
+        let settings = store.load_app_settings().expect("load migrated settings");
+        assert_eq!(state.status_text, "浮标已经就位，正在慢慢等鱼。");
+        assert_eq!(catalog.counts(), (20, 20, 20, 20, 20, 20));
+        assert_eq!(settings.bobber_skin, "orange");
+        drop(store);
+        std::fs::remove_file(database_path).expect("remove migration test database");
+    }
+
+    #[test]
     fn round_state_survives_a_sqlite_round_trip() {
         let store = SqliteStore::open(Path::new(":memory:")).expect("open in-memory database");
         let expected = PersistedRoundState {
@@ -971,6 +1076,7 @@ mod tests {
             round_started_at: Some("2026-08-18T07:52:30Z".to_owned()),
             scheduled_end_time: Some("2026-08-18T08:00:00Z".to_owned()),
             planned_duration_seconds: 450,
+            status_text: "浮标已经站稳。".to_owned(),
             waiting_events_json: "[]".to_owned(),
             notified_events_json: "[1,2]".to_owned(),
             round_number: 42,
@@ -1036,6 +1142,7 @@ mod tests {
             actual.planned_duration_seconds,
             expected.planned_duration_seconds
         );
+        assert_eq!(actual.status_text, expected.status_text);
         assert_eq!(actual.waiting_events_json, expected.waiting_events_json);
         assert_eq!(actual.notified_events_json, expected.notified_events_json);
         assert_eq!(actual.round_number, expected.round_number);
@@ -1044,9 +1151,10 @@ mod tests {
         assert_eq!(actual.last_result, expected.last_result);
         assert_eq!(actual.state_revision, expected.state_revision);
         assert_eq!(actual.stop_after_settlement, expected.stop_after_settlement);
-        assert_eq!(catalog.counts(), (20, 20, 20));
+        assert_eq!(catalog.counts(), (20, 20, 20, 20, 20, 20));
         assert_eq!(outcome_catalog.catches.len(), 20);
         assert_eq!(outcome_catalog.misses.len(), 20);
+        assert_eq!(outcome_catalog.features.len(), 20);
         assert_eq!(bait.name, "综合试钓饵");
         assert_eq!(first_preferences.len(), 30);
         assert_eq!(second_preferences.len(), 30);
@@ -1166,6 +1274,7 @@ mod tests {
             bobber_always_on_top: false,
             theme: "dark".to_owned(),
             reduced_motion: true,
+            bobber_skin: "calico".to_owned(),
         };
         store
             .save_app_settings(&expected, "2026-08-18T09:00:00Z")

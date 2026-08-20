@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { defaultAppSettings, type AppSettings, type AppTheme } from "../../domain/prototype";
+import { bobberSkins } from "../bobber/skins";
 import { getAppSettings, sendPrototypeNotification, updateAppSettings } from "../../ipc/client";
 
 function ToggleSetting({ checked, disabled, label, description, onChange }: {
@@ -71,6 +72,16 @@ export function SettingsPage() {
         <ToggleSetting checked={settings.bobberAlwaysOnTop} disabled={!settings.bobberVisible} label="浮标保持置顶" description="让浮标停留在普通窗口上方；全屏程序仍可能覆盖它。" onChange={(value) => patch({ bobberAlwaysOnTop: value })} />
       </article>
       <article className="paper-card settings-group settings-appearance"><h3>显示</h3>
+        <div className="setting-copy"><strong>悬浮猫咪皮肤</strong><small>选择喜欢的钓鱼猫；保存后桌面悬浮图会立即更换。</small></div>
+        <div className="skin-options" role="group" aria-label="悬浮猫咪皮肤">
+          {bobberSkins.map((skin) => <button
+            type="button"
+            className={`skin-option ${settings.bobberSkin === skin.value ? "active" : ""}`}
+            aria-pressed={settings.bobberSkin === skin.value}
+            key={skin.value}
+            onClick={() => patch({ bobberSkin: skin.value })}
+          ><img src={skin.image} alt="" draggable={false} /><span>{skin.label}</span></button>)}
+        </div>
         <div className="setting-copy"><strong>界面主题</strong><small>选择跟随 Windows，或固定使用浅色、深色外观。</small></div>
         <div className="theme-options" role="group" aria-label="界面主题">{themes.map((theme) => <button className={settings.theme === theme.value ? "active" : ""} key={theme.value} onClick={() => patch({ theme: theme.value })}>{theme.label}</button>)}</div>
         <ToggleSetting checked={settings.reducedMotion} label="减少动态效果" description="停止浮标呼吸与轻微摆动，更适合长时间放在屏幕一角。" onChange={(value) => patch({ reducedMotion: value })} />

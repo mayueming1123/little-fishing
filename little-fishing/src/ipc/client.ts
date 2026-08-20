@@ -138,7 +138,10 @@ export async function sendPrototypeNotification(): Promise<boolean> {
 
 export async function subscribeBobberToast(listener: (message: BobberToastPayload) => void): Promise<UnlistenFn> {
   if (!isTauriRuntime()) return () => undefined;
-  return listen<BobberToastPayload>("bobber-toast", (event) => listener(event.payload));
+  const unlisten = await listen<BobberToastPayload>("bobber-toast", (event) => listener(event.payload));
+  const pending = await invoke<BobberToastPayload | null>("get_pending_bobber_toast");
+  if (pending) listener(pending);
+  return unlisten;
 }
 
 export async function activateBobberToast(): Promise<void> {

@@ -5,6 +5,29 @@ use std::collections::BTreeSet;
 
 const PROBABILITY_SCALE: u16 = 10_000;
 
+const STATUS_TEXTS: [&str; 20] = [
+    "刚抛好这一竿，浮标正在找一个舒服的位置。",
+    "鱼饵已经下水，接下来交给耐心和一点运气。",
+    "钓线慢慢沉稳下来，水下的菜单今天刚刚开张。",
+    "浮标站稳了，正在替你留意水下的动静。",
+    "这一竿已经就位，岸上不用着急。",
+    "鱼钩带着今天的配方沉了下去，暂时一切安静。",
+    "水面收下了这一竿，答案还藏在下面。",
+    "钓组已经落定，浮标开始认真值班。",
+    "这一轮等待刚刚开始，风和鱼都还没表态。",
+    "鱼线轻轻绷着，水下正在慢慢闻味道。",
+    "浮标在波纹里站好，今天的运气开始计时。",
+    "饵料已经入水，附近的鱼正在决定要不要开会。",
+    "抛竿很顺利，剩下的事情不适合催。",
+    "钓点安静下来，这一竿开始过自己的慢日子。",
+    "浮标露出半截，像一位刚上岗的值班员。",
+    "鱼线落进水色里，今天的第一封邀请已经寄出。",
+    "这一竿没有声张，安安静静地开始了。",
+    "钓组沉到合适的位置，岸边重新恢复清闲。",
+    "浮标轻晃两下站稳，像是在说已经准备好了。",
+    "鱼饵开始散味，水下会不会买账只能慢慢看。",
+];
+
 const AMBIENT_EVENTS: [&str; 20] = [
     "风从芦苇那边绕过来，水面多了几道细纹。",
     "一片叶子慢慢漂过浮标，又若无其事地走远了。",
@@ -52,26 +75,72 @@ const WATER_EVENTS: [&str; 20] = [
 ];
 
 const TACKLE_EVENTS: [&str; 20] = [
-    "风把鱼线吹出一个小弯，好在很快自己理顺了。",
-    "一根细草搭上钓线，顺水滑了一段才松开。",
-    "鱼线轻轻蹭过水草，传来一次很像咬钩的假消息。",
-    "浮标被漂来的小树枝碰了一下，虚惊一场。",
-    "钓线短暂贴住水面，风一变又重新悬了起来。",
-    "一片浮叶挂在线上几秒，最后决定自行离场。",
-    "水草拉了拉鱼线，手法熟练得很像惯犯。",
-    "浮标周围绕来一圈细线纹，暂时没有打结。",
-    "钓组在水下轻轻转动，似乎正在调整坐姿。",
-    "一阵侧风把浮标推偏，钓线仍旧保持着体面。",
-    "小水草擦过鱼钩，留下了一次无效警报。",
-    "鱼线松了一点，又被水流慢慢带直。",
-    "漂来的草茎碰上浮标，双方很快和平分开。",
-    "钓线似乎在水下绕过了什么，但没有真正挂住。",
-    "浮标被风吹得斜了一会儿，仍坚持没有倒下。",
-    "一小截枯枝从线边经过，差一点就想参与这一竿。",
-    "线轮里传来极轻的一声响，检查后仍然一切正常。",
-    "钓线沾上一点浮沫，很快又被水流洗掉。",
-    "水草在钓组附近晃动，制造了几秒钟的悬念。",
-    "鱼线和风较了一会儿劲，最后勉强算是平手。",
+    "钓组突然挂底，轻弹几次竿稍后总算从石缝里脱了出来。",
+    "子线啪地断了，好在备用线组已经重新接好并抛回原处。",
+    "鱼钩带上来一大团水草，清理干净后这一竿继续。",
+    "鱼线在竿尖绕了一圈，费了点耐心才重新理顺。",
+    "饵团被小鱼啄得松散，只好补上一小团重新抛下。",
+    "线轮忽然卡了一下，来回轻摇几次后恢复了顺滑。",
+    "浮标座有些松，重新推紧后总算不再慢慢下滑。",
+    "钩尖蹭过硬物变得不够锋利，已经换上一枚新钩。",
+    "鱼线被漂来的树枝压进水里，绕开枝杈后重新归位。",
+    "一阵侧风把钓线吹成大弧，压低竿尖才慢慢收回控制。",
+    "钓组缠成了一个小结，解开时甚至够喝两口水。",
+    "水草牢牢抱住铅坠，左右松线几次才肯放手。",
+    "抛竿时饵团飞得比钩还远，只能重新装饵再来一次。",
+    "鱼线擦过岸边石角，检查后剪掉了一小段磨毛的线。",
+    "浮标吃水比刚才深，原来铅皮松开了一点，已经重新卷紧。",
+    "钓线被风送上芦苇梢，慢慢牵回来后没有留下死结。",
+    "提竿检查时发现钩门微微变形，换钩以后继续守候。",
+    "线组轻轻回弹，像是挂到一只旧塑料袋，清走后水面清爽多了。",
+    "八字环拧得有些别扭，顺着反转几圈才让子线重新自然。",
+    "一次过猛的假信号差点拉断子线，松力以后线组保住了。",
+];
+
+const WILDLIFE_EVENTS: [&str; 20] = [
+    "一只白鹭在不远处落脚，和你共同研究了几分钟水面。",
+    "蜻蜓停上浮标尖端，把值班工作临时分走了一半。",
+    "两只野鸭从钓线外侧游过，留下整齐的两排波纹。",
+    "一只青蛙从岸边跳下去，替这一竿制造了很响的开场。",
+    "小虾在浅水边倒退几步，很快钻进石缝里不见了。",
+    "水鸟忽然扎进远处水面，空手出来后显得若无其事。",
+    "一条小鱼跃出水面，落点离鱼钩偏偏差了很远。",
+    "蚂蚁沿着竿架排队经过，对鱼饵表现出不合适的兴趣。",
+    "一只蝴蝶绕着饵盆飞了两圈，最后选择了岸边野花。",
+    "远处的鱼鹰贴水飞过，专业选手没有对这一竿发表评论。",
+    "岸边草丛里窸窣一阵，一只小蜥蜴探头看了看浮标。",
+    "几只水黾从浮标旁滑过，步子比今天的鱼口轻快得多。",
+    "一只麻雀落在竿把附近，停了片刻又赶往别处。",
+    "河蚌在浅水里挪出一道细痕，速度很慢但方向坚定。",
+    "小螃蟹举着钳子从石头后面出来，又谨慎地退了回去。",
+    "一群小鱼在近岸散开，像是临时改变了集合地点。",
+    "燕子擦着水面飞过，影子让浮标紧张地晃了一下。",
+    "远处传来一声鱼跃，水圈慢慢扩大，却不是你的方向。",
+    "一只田螺牢牢贴在石头上，用自己的方式陪你挂机。",
+    "水边的青蛙叫了三声，像在为这一竿做不太可靠的预测。",
+];
+
+const STORY_EVENTS: [&str; 20] = [
+    "浮标连续点了三下，像有人在水下敲门，随后又礼貌地离开。",
+    "一片圆叶正好停在浮标旁，看起来像给它摆了一张小桌子。",
+    "水下冒出一串整齐气泡，像是哪条鱼叹完气后转身走了。",
+    "风把芦苇吹得一起低头，仿佛岸边正在举行安静的投票。",
+    "浮标忽然转向岸边，像是想提前下班，很快又被水流劝了回去。",
+    "一根羽毛漂过钓点，短暂担任了这一片水面的巡逻船。",
+    "远处的波纹排成一行赶来，到浮标前却突然忘了来意。",
+    "鱼线轻响一声，像水下有人翻过菜单但嫌今天选择太多。",
+    "浮标在阳光里亮了一下，获得了本轮唯一一枚临时勋章。",
+    "一团云影罩住钓点，几秒后又把舞台灯光还给了你。",
+    "岸边落叶追着彼此打了个圈，这一竿暂时只有观众没有主角。",
+    "水面推来一圈很圆的波纹，像给浮标盖了一枚透明印章。",
+    "钓线轻轻振动两次，水下似乎发来了一条没有署名的消息。",
+    "风和水流各拉鱼线一边，短暂开完会后决定维持现状。",
+    "浮标歪着想了一会儿，又站直继续扮演一名可靠员工。",
+    "一颗气泡在浮标旁破开，像一句只说到一半的悄悄话。",
+    "芦苇影子慢慢越过钓点，替这段等待翻了一页。",
+    "水面忽然静得像暂停了一秒，随后所有小波纹继续上班。",
+    "一小片浮萍围住浮标，很快又像散会一样各自漂走。",
+    "鱼钩在水下毫无动静，但想象力已经偷偷收了一次线。",
 ];
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -85,33 +154,58 @@ pub struct WaitingEvent {
 
 pub struct RoundPlan {
     pub duration_seconds: i64,
+    pub status_text: String,
     pub waiting_events: Vec<WaitingEvent>,
 }
 
 #[derive(Clone, Debug)]
 pub struct EventCatalog {
+    status: Vec<String>,
     ambient: Vec<String>,
     water: Vec<String>,
     tackle: Vec<String>,
+    wildlife: Vec<String>,
+    story: Vec<String>,
 }
 
 impl EventCatalog {
-    pub fn new(ambient: Vec<String>, water: Vec<String>, tackle: Vec<String>) -> Self {
+    pub fn new(
+        status: Vec<String>,
+        ambient: Vec<String>,
+        water: Vec<String>,
+        tackle: Vec<String>,
+        wildlife: Vec<String>,
+        story: Vec<String>,
+    ) -> Self {
         Self {
+            status,
             ambient,
             water,
             tackle,
+            wildlife,
+            story,
         }
     }
 
     #[cfg(test)]
-    pub fn counts(&self) -> (usize, usize, usize) {
-        (self.ambient.len(), self.water.len(), self.tackle.len())
+    pub fn counts(&self) -> (usize, usize, usize, usize, usize, usize) {
+        (
+            self.status.len(),
+            self.ambient.len(),
+            self.water.len(),
+            self.tackle.len(),
+            self.wildlife.len(),
+            self.story.len(),
+        )
     }
 
     #[cfg(test)]
     pub(crate) fn seeded() -> Self {
         Self::new(
+            STATUS_TEXTS
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
             AMBIENT_EVENTS
                 .iter()
                 .map(|value| (*value).to_owned())
@@ -124,15 +218,26 @@ impl EventCatalog {
                 .iter()
                 .map(|value| (*value).to_owned())
                 .collect(),
+            WILDLIFE_EVENTS
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
+            STORY_EVENTS
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
         )
     }
 }
 
 pub fn event_description_seeds() -> Vec<(&'static str, u32, &'static str)> {
     [
+        ("status", STATUS_TEXTS.as_slice()),
         ("environment", AMBIENT_EVENTS.as_slice()),
         ("water", WATER_EVENTS.as_slice()),
         ("tackle", TACKLE_EVENTS.as_slice()),
+        ("wildlife", WILDLIFE_EVENTS.as_slice()),
+        ("story", STORY_EVENTS.as_slice()),
     ]
     .into_iter()
     .flat_map(|(category, descriptions)| {
@@ -163,12 +268,14 @@ pub fn sample_duration_seconds<R: Rng + ?Sized>(rng: &mut R) -> i64 {
 
 fn event_count(duration_seconds: i64) -> usize {
     match duration_seconds {
-        0..=149 => 0,
-        150..=899 => 1,
-        900..=1_799 => 2,
-        1_800..=2_699 => 3,
-        2_700..=3_600 => 4,
-        _ => 5,
+        0..=59 => 0,
+        60..=299 => 1,
+        300..=899 => 2,
+        900..=1_799 => 3,
+        1_800..=2_699 => 4,
+        2_700..=3_600 => 5,
+        3_601..=5_400 => 6,
+        _ => 7,
     }
 }
 
@@ -177,7 +284,17 @@ fn choose_event<'a, R: Rng + ?Sized>(
     allow_tackle: bool,
     catalog: &'a EventCatalog,
 ) -> (&'static str, &'a str) {
-    let pool_index = rng.random_range(0..if allow_tackle { 3 } else { 2 });
+    if rng.random_range(0..5) == 4 {
+        return (
+            "story",
+            catalog
+                .story
+                .choose(rng)
+                .expect("story event pool is not empty")
+                .as_str(),
+        );
+    }
+    let pool_index = rng.random_range(0..if allow_tackle { 4 } else { 3 });
     match pool_index {
         0 => (
             "environment",
@@ -193,6 +310,14 @@ fn choose_event<'a, R: Rng + ?Sized>(
                 .water
                 .choose(rng)
                 .expect("water event pool is not empty")
+                .as_str(),
+        ),
+        2 => (
+            "wildlife",
+            catalog
+                .wildlife
+                .choose(rng)
+                .expect("wildlife event pool is not empty")
                 .as_str(),
         ),
         _ => (
@@ -212,6 +337,11 @@ pub fn generate_round_plan<R: Rng + ?Sized>(
     catalog: &EventCatalog,
 ) -> RoundPlan {
     let duration_seconds = sample_duration_seconds(rng);
+    let status_text = catalog
+        .status
+        .choose(rng)
+        .expect("status text pool is not empty")
+        .clone();
     let total_ticks = duration_seconds / 30;
     let count = event_count(duration_seconds).min(total_ticks.saturating_sub(1) as usize);
     let mut event_ticks = BTreeSet::new();
@@ -235,6 +365,7 @@ pub fn generate_round_plan<R: Rng + ?Sized>(
 
     RoundPlan {
         duration_seconds,
+        status_text,
         waiting_events,
     }
 }
@@ -287,9 +418,20 @@ mod tests {
 
     #[test]
     fn every_event_category_has_twenty_descriptions() {
+        assert_eq!(STATUS_TEXTS.len(), 20);
         assert_eq!(AMBIENT_EVENTS.len(), 20);
         assert_eq!(WATER_EVENTS.len(), 20);
         assert_eq!(TACKLE_EVENTS.len(), 20);
-        assert_eq!(event_description_seeds().len(), 60);
+        assert_eq!(WILDLIFE_EVENTS.len(), 20);
+        assert_eq!(STORY_EVENTS.len(), 20);
+        assert_eq!(event_description_seeds().len(), 120);
+    }
+
+    #[test]
+    fn ordinary_rounds_always_have_visible_activity() {
+        assert_eq!(event_count(30), 0);
+        assert_eq!(event_count(300), 2);
+        assert_eq!(event_count(900), 3);
+        assert_eq!(event_count(3_601), 6);
     }
 }
