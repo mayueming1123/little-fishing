@@ -12,7 +12,7 @@ interface FishIconSpec {
   spines?: boolean;
 }
 
-// 顺序与数据库中 1～30 号鱼种严格对应；轮廓、花纹与配色组合均不重复。
+// 顺序与数据库中 1～40 号鱼种严格对应；轮廓、花纹与配色组合均不重复。
 export const fishIconSpecs: readonly FishIconSpec[] = [
   { shape: "standard", marking: "scales", body: "#ad7b42", dark: "#65452e", accent: "#d5ad62", belly: "#d8bd86", whiskers: true },
   { shape: "deep", marking: "scales", body: "#a9a58c", dark: "#62685d", accent: "#d6c48c", belly: "#d7d4be" },
@@ -44,6 +44,16 @@ export const fishIconSpecs: readonly FishIconSpec[] = [
   { shape: "pomfret", marking: "bands", body: "#899da0", dark: "#445d62", accent: "#c3b06f", belly: "#c4d0cc", spines: true },
   { shape: "pomfret", marking: "plain", body: "#c8d0cf", dark: "#71868a", accent: "#eef2ec", belly: "#e8ece5" },
   { shape: "pomfret", marking: "lateral", body: "#d6aa43", dark: "#765a2d", accent: "#f0cf65", belly: "#e8cc87" },
+  { shape: "deep", marking: "stripe", body: "#829064", dark: "#40523c", accent: "#a6b85d", belly: "#c1c9a4" },
+  { shape: "standard", marking: "speckles", body: "#6f9a78", dark: "#365947", accent: "#d2b35c", belly: "#b9cbb1", spines: true },
+  { shape: "slender", marking: "plain", body: "#c5d6d2", dark: "#6e8584", accent: "#e4eeea", belly: "#f0f2e9" },
+  { shape: "deep", marking: "spots", body: "#c49a4f", dark: "#6d5438", accent: "#657f55", belly: "#ddc58d", spines: true },
+  { shape: "deep", marking: "bands", body: "#737b7c", dark: "#343e42", accent: "#aeb5ad", belly: "#c6cbc5", spines: true },
+  { shape: "standard", marking: "saddle", body: "#b48373", dark: "#654a43", accent: "#d8ad82", belly: "#dcc4aa", whiskers: true },
+  { shape: "slender", marking: "stripe", body: "#c68c6f", dark: "#6f4e49", accent: "#e5c45f", belly: "#e2b9a1" },
+  { shape: "slender", marking: "speckles", body: "#688895", dark: "#344e5a", accent: "#a8bec0", belly: "#bdccca" },
+  { shape: "eel", marking: "saddle", body: "#8b8060", dark: "#494a39", accent: "#b7a767", belly: "#aaa48a" },
+  { shape: "slender", marking: "bands", body: "#a58b66", dark: "#53473b", accent: "#d1bd88", belly: "#c7bda5", spines: true },
 ] as const;
 
 const shapePaths: Record<FishShape, { outer: string; inner: string; eye: [number, number] }> = {

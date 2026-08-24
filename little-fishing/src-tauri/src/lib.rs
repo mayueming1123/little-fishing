@@ -4,7 +4,8 @@ mod round_engine;
 
 use chrono::{DateTime, Duration as ChronoDuration, Local, SecondsFormat, Utc};
 use fishing_rules::{
-    BaitIngredientInfo, FishRecord, FlavorVector, OutcomeTextCatalog, resolve_round,
+    BaitIngredientInfo, FishRecord, FlavorVector, OutcomeTextCatalog, TreasureRecord,
+    resolve_round,
 };
 use persistence::{
     FishingLogEntry, PersistedRoundState, PlayerSummary, SqliteStore, StoredAppSettings,
@@ -1064,6 +1065,14 @@ fn get_fish_records(app: AppHandle) -> Result<Vec<FishRecord>, String> {
 }
 
 #[tauri::command]
+fn get_treasure_records(app: AppHandle) -> Result<Vec<TreasureRecord>, String> {
+    app.state::<PersistenceState>()
+        .store
+        .load_treasure_records()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn get_player_summary(app: AppHandle) -> Result<PlayerSummary, String> {
     app.state::<PersistenceState>()
         .store
@@ -1422,6 +1431,7 @@ pub fn run() {
             get_bait_editor_data,
             save_bait_recipe,
             get_fish_records,
+            get_treasure_records,
             get_player_summary,
             get_skin_store_state,
             purchase_skin,

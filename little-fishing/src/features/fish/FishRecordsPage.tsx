@@ -1,17 +1,24 @@
 import { useEffect, useState } from "react";
-import type { FishRecord } from "../../domain/prototype";
-import { getFishRecords } from "../../ipc/client";
+import type { FishRecord, TreasureRecord } from "../../domain/prototype";
+import { getFishRecords, getTreasureRecords } from "../../ipc/client";
 import { PixelFishIcon } from "./PixelFishIcon";
 import { FishRarityBadge } from "./FishRarityBadge";
+import { TreasureIcon } from "./TreasureIcon";
 
 type RecordFilter = "all" | "caught" | "uncaught";
 
 export function FishRecordsPage() {
   const [records, setRecords] = useState<FishRecord[]>([]);
+  const [treasures, setTreasures] = useState<TreasureRecord[]>([]);
   const [filter, setFilter] = useState<RecordFilter>("all");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    void getFishRecords().then(setRecords).catch(() => setError("暂时无法读取鱼类记录"));
+    void Promise.all([getFishRecords(), getTreasureRecords()])
+      .then(([nextRecords, nextTreasures]) => {
+        setRecords(nextRecords);
+        setTreasures(nextTreasures);
+      })
+      .catch(() => setError("暂时无法读取鱼类记录"));
   }, []);
 
   const caughtCount = records.filter((record) => record.caughtCount > 0).length;
@@ -37,5 +44,14 @@ export function FishRecordsPage() {
       <div className="fish-stats"><div><span>钓获</span><strong>{record.caughtCount} 条</strong></div><div><span>最长</span><strong>{record.maxLengthCm == null ? "—" : `${record.maxLengthCm.toFixed(1)} cm`}</strong></div><div><span>最重</span><strong>{record.maxWeightKg == null ? "—" : `${record.maxWeightKg.toFixed(2)} kg`}</strong></div></div>
       <p className="fish-description">{record.latestDescription ?? "还没有钓到过，记录页安静得像一片水。"}</p>
     </article>)}</div>}
+
+    <div className="treasure-section-head">
+      <div><h2>隐藏传说</h2><p>极少数空军会从水下带回别的东西。发现以前，名字、图案和来历都不会公开。</p></div>
+      <span>已发现 {treasures.filter((treasure) => treasure.discovered).length} / {treasures.length}</span>
+    </div>
+    <div className="treasure-grid">{treasures.map((treasure) => <article className={`treasure-card ${treasure.discovered ? "discovered" : "locked"}`} key={treasure.treasureId}>
+      <TreasureIcon treasureId={treasure.treasureId} discovered={treasure.discovered} label={treasure.name} />
+      <div><h3>{treasure.name}</h3><p>{treasure.description}</p>{treasure.discovered && <small>发现 {treasure.foundCount} 次</small>}</div>
+    </article>)}</div>
   </section>;
 }

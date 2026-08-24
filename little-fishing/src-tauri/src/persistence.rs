@@ -1,7 +1,7 @@
 use crate::fishing_rules::{
     BaitIngredientInfo, BaitProfile, FishProfile, FishRarity, FishRecord, FlavorVector,
-    OutcomeTextCatalog, RoundOutcome, bait_ingredient_seeds, fish_species_seeds,
-    outcome_description_seeds,
+    OutcomeTextCatalog, RoundOutcome, TreasureRecord, bait_ingredient_seeds, fish_species_seeds,
+    legendary_treasure_seeds, outcome_description_seeds,
 };
 use crate::round_engine::{EventCatalog, WaitingEvent, event_description_seeds};
 use rand::Rng;
@@ -144,6 +144,19 @@ impl SqliteStore {
                  enabled INTEGER NOT NULL DEFAULT 1
              );
 
+             CREATE TABLE IF NOT EXISTS legendary_treasures (
+                 id INTEGER PRIMARY KEY,
+                 name TEXT NOT NULL UNIQUE,
+                 description TEXT NOT NULL,
+                 enabled INTEGER NOT NULL DEFAULT 1
+             );
+
+             CREATE TABLE IF NOT EXISTS treasure_discoveries (
+                 treasure_id INTEGER PRIMARY KEY REFERENCES legendary_treasures(id),
+                 discovered_at TEXT NOT NULL,
+                 found_count INTEGER NOT NULL DEFAULT 1
+             );
+
              CREATE TABLE IF NOT EXISTS bait_ingredients (
                  id INTEGER PRIMARY KEY,
                  name TEXT NOT NULL UNIQUE,
@@ -254,6 +267,16 @@ impl SqliteStore {
                      (category, sequence, description, enabled)
                  VALUES (?1, ?2, ?3, 1)",
                 params![category, sequence, description],
+            )?;
+        }
+        for treasure in legendary_treasure_seeds() {
+            connection.execute(
+                "INSERT INTO legendary_treasures (id, name, description, enabled)
+                 VALUES (?1, ?2, ?3, 1)
+                 ON CONFLICT(id) DO UPDATE SET
+                     name = excluded.name,
+                     description = excluded.description",
+                params![treasure.id, treasure.name, treasure.description],
             )?;
         }
         for fish in fish_species_seeds() {
@@ -717,6 +740,42 @@ impl SqliteStore {
             .collect()
     }
 
+    pub fn load_treasure_records(&self) -> rusqlite::Result<Vec<TreasureRecord>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT t.id, t.name, t.description,
+                    d.treasure_id IS NOT NULL, COALESCE(d.found_count, 0)
+             FROM legendary_treasures t
+             LEFT JOIN treasure_discoveries d ON d.treasure_id = t.id
+             WHERE t.enabled = 1
+             ORDER BY t.id",
+        )?;
+        statement
+            .query_map([], |row| {
+                let discovered: bool = row.get(3)?;
+                Ok(TreasureRecord {
+                    treasure_id: row.get(0)?,
+                    discovered,
+                    name: if discovered {
+                        row.get(1)?
+                    } else {
+                        "？？？".to_owned()
+                    },
+                    description: if discovered {
+                        row.get(2)?
+                    } else {
+                        "尚未发现。它仍藏在某一次空军之后。".to_owned()
+                    },
+                    found_count: if discovered {
+                        row.get::<_, i64>(4)?.max(0) as u64
+                    } else {
+                        0
+                    },
+                })
+            })?
+            .collect()
+    }
+
     pub fn ensure_daily_preferences<R: Rng + ?Sized>(
         &self,
         local_date: &str,
@@ -828,6 +887,17 @@ impl SqliteStore {
                     *best_similarity,
                     reason.clone(),
                 ),
+                RoundOutcome::TreasureFound {
+                    best_similarity, ..
+                } => (
+                    "treasure",
+                    None,
+                    None,
+                    None,
+                    None,
+                    *best_similarity,
+                    outcome.summary(),
+                ),
             };
         let outcome_json = serde_json::to_string(outcome)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
@@ -838,8 +908,9 @@ impl SqliteStore {
         } else {
             "not_applicable"
         };
-        let connection = self.connection.lock().expect("sqlite connection poisoned");
-        connection.execute(
+        let mut connection = self.connection.lock().expect("sqlite connection poisoned");
+        let transaction = connection.transaction()?;
+        transaction.execute(
             "INSERT OR REPLACE INTO round_results (
                  round_number, round_started_at, settled_at, planned_duration_seconds,
                  waiting_events_json, preference_date, bait_name, result_type,
@@ -868,7 +939,16 @@ impl SqliteStore {
                 disposition,
             ],
         )?;
-        Ok(())
+        if let RoundOutcome::TreasureFound { treasure_id, .. } = outcome {
+            transaction.execute(
+                "INSERT INTO treasure_discoveries (treasure_id, discovered_at, found_count)
+                 VALUES (?1, ?2, 1)
+                 ON CONFLICT(treasure_id) DO UPDATE SET
+                     found_count = treasure_discoveries.found_count + 1",
+                params![treasure_id, settled_at],
+            )?;
+        }
+        transaction.commit()
     }
 
     pub fn load_player_summary(&self) -> rusqlite::Result<PlayerSummary> {
@@ -1236,7 +1316,7 @@ mod tests {
         let catalog = store.load_event_catalog().expect("load expanded events");
         let settings = store.load_app_settings().expect("load migrated settings");
         assert_eq!(state.status_text, "浮标已经就位，正在慢慢等鱼。");
-        assert_eq!(catalog.counts(), (20, 20, 20, 20, 20, 20));
+        assert_eq!(catalog.counts(), (30, 30, 30, 30, 30, 30));
         assert_eq!(settings.bobber_skin, "orange");
         drop(store);
         std::fs::remove_file(database_path).expect("remove migration test database");
@@ -1326,13 +1406,13 @@ mod tests {
         assert_eq!(actual.last_result, expected.last_result);
         assert_eq!(actual.state_revision, expected.state_revision);
         assert_eq!(actual.stop_after_settlement, expected.stop_after_settlement);
-        assert_eq!(catalog.counts(), (20, 20, 20, 20, 20, 20));
-        assert_eq!(outcome_catalog.catches.len(), 20);
-        assert_eq!(outcome_catalog.misses.len(), 20);
-        assert_eq!(outcome_catalog.features.len(), 20);
+        assert_eq!(catalog.counts(), (30, 30, 30, 30, 30, 30));
+        assert_eq!(outcome_catalog.catches.len(), 30);
+        assert_eq!(outcome_catalog.misses.len(), 30);
+        assert_eq!(outcome_catalog.features.len(), 30);
         assert_eq!(bait.name, "综合试钓饵");
-        assert_eq!(first_preferences.len(), 30);
-        assert_eq!(second_preferences.len(), 30);
+        assert_eq!(first_preferences.len(), 40);
+        assert_eq!(second_preferences.len(), 40);
         assert_eq!(
             first_preferences[0].preference,
             second_preferences[0].preference
@@ -1386,7 +1466,7 @@ mod tests {
             )
             .expect("save caught outcome");
         let records = store.load_fish_records().expect("load fish records");
-        assert_eq!(records.len(), 30);
+        assert_eq!(records.len(), 40);
         assert_eq!(records[0].rarity, FishRarity::Common);
         assert_eq!(records[23].rarity, FishRarity::Legendary);
         assert_eq!(records[0].caught_count, 1);
@@ -1454,6 +1534,50 @@ mod tests {
         assert_eq!(log[0].round_number, 2);
         assert_eq!(log[0].disposition, "sold");
         assert_eq!(log[1].disposition, "eaten");
+    }
+
+    #[test]
+    fn legendary_treasure_stays_hidden_until_discovered() {
+        let store = SqliteStore::open(Path::new(":memory:")).expect("open in-memory database");
+        let hidden = store
+            .load_treasure_records()
+            .expect("load hidden treasures");
+        assert_eq!(hidden.len(), 5);
+        assert!(hidden.iter().all(|treasure| !treasure.discovered));
+        assert!(hidden.iter().all(|treasure| treasure.name == "？？？"));
+
+        let treasure = RoundOutcome::TreasureFound {
+            treasure_id: 1,
+            treasure_name: "巨大的黑色珍珠".to_owned(),
+            description: "测试宝物描述。".to_owned(),
+            best_similarity: 0.72,
+        };
+        for round_number in [1, 2] {
+            store
+                .save_round_outcome(
+                    round_number,
+                    None,
+                    "2026-08-18T08:00:00Z",
+                    900,
+                    &[],
+                    "2026-08-18",
+                    "综合试钓饵",
+                    &treasure,
+                )
+                .expect("save treasure outcome");
+        }
+
+        let discovered = store
+            .load_treasure_records()
+            .expect("load discovered treasures");
+        assert!(discovered[0].discovered);
+        assert_eq!(discovered[0].name, "巨大的黑色珍珠");
+        assert_eq!(discovered[0].found_count, 2);
+        assert_eq!(discovered[1].name, "？？？");
+        let log = store.load_fishing_log(10).expect("load treasure log");
+        assert_eq!(log[0].result_type, "treasure");
+        assert_eq!(log[0].disposition, "not_applicable");
+        assert_eq!(store.load_player_summary().unwrap().pending_catches, 0);
     }
 
     #[test]

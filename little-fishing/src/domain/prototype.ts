@@ -90,6 +90,14 @@ export interface FishRecord {
   latestDescription: string | null;
 }
 
+export interface TreasureRecord {
+  treasureId: number;
+  discovered: boolean;
+  name: string;
+  description: string;
+  foundCount: number;
+}
+
 export interface PlayerSummary {
   bodyWeightKg: number;
   money: number;
@@ -107,7 +115,7 @@ export interface FishingLogEntry {
   plannedDurationSeconds: number;
   waitingEvents: WaitingEvent[];
   baitName: string;
-  resultType: "caught" | "missed";
+  resultType: "caught" | "missed" | "treasure";
   fishId: number | null;
   fishName: string | null;
   fishRarity: FishRarity | null;

@@ -62,15 +62,16 @@ export function FishingLogPage({ revision }: { revision: number }) {
     {message && <div className="error-strip" role="status">{message}</div>}
     {entries.length === 0 ? <div className="paper-card empty-log">还没有完成过一竿。水面正在替你保留第一行空白。</div> : <div className="fishing-log-list">{entries.map((entry) => {
       const caught = entry.resultType === "caught";
+      const treasure = entry.resultType === "treasure";
       const pending = caught && entry.disposition === "pending";
-      return <article className={`fishing-log-card ${pending ? "pending-catch" : ""}`} key={entry.roundNumber}>
-        <header><div><strong>第 {entry.roundNumber} 竿</strong><span>{formatDateTime(entry.settledAt)} · {entry.baitName}</span></div><em className={caught ? "caught" : "missed"}>{caught ? "中鱼" : "空军"}</em></header>
+      return <article className={`fishing-log-card ${pending ? "pending-catch" : ""} ${treasure ? "treasure-found" : ""}`} key={entry.roundNumber}>
+        <header><div><strong>第 {entry.roundNumber} 竿</strong><span>{formatDateTime(entry.settledAt)} · {entry.baitName}</span></div><em className={caught ? "caught" : treasure ? "treasure" : "missed"}>{caught ? "中鱼" : treasure ? "隐藏传说" : "空军"}</em></header>
         <div className="round-meta"><span>等待 {formatPlannedDuration(entry.plannedDurationSeconds)}</span><span>{entry.waitingEvents.length} 次过程动静</span></div>
         {entry.waitingEvents.length > 0 && <details className="event-timeline"><summary>展开本竿过程</summary><ol>{entry.waitingEvents.map((event) => <li key={event.id}><time>{formatDateTime(event.scheduledAt)}</time><span>{event.description}</span></li>)}</ol></details>}
         {caught ? <div className="caught-result">
           <PixelFishIcon fishId={entry.fishId ?? 1} label={entry.fishName ?? "鱼"} />
           <div className="caught-copy"><div className="fish-title-line"><h3>{entry.fishName}</h3>{entry.fishRarity && <FishRarityBadge rarity={entry.fishRarity} />}</div><p>{entry.description}</p><div><span>{entry.lengthCm?.toFixed(1)} cm</span><span>{entry.weightKg?.toFixed(2)} kg</span><span>价值 {entry.value?.toFixed(2)} 金币</span></div></div>
-        </div> : <p className="miss-result">{entry.description}</p>}
+        </div> : <p className={treasure ? "treasure-result" : "miss-result"}>{entry.description}</p>}
         {caught && <footer className="catch-disposition"><span className={`disposition ${entry.disposition}`}>{dispositionText(entry)}</span>{pending && <div><button disabled={busyRound === entry.roundNumber} onClick={() => void dispose(entry, "eat")}>吃掉</button><button disabled={busyRound === entry.roundNumber} onClick={() => void dispose(entry, "sell")}>卖掉</button></div>}</footer>}
       </article>;
     })}</div>}

@@ -195,6 +195,27 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 }
 .fish-description { min-height: 2.9em; margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .fish-record-card.uncaught .pixel-fish { opacity: .56; filter: saturate(.28); }
+.treasure-section-head {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 20px;
+  margin: 28px 0 14px; padding-top: 22px; border-top: 1px solid var(--line);
+}
+.treasure-section-head h2 { margin: 0; color: #413b55; font-size: 20px; }
+.treasure-section-head p { max-width: 700px; margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.treasure-section-head > span { flex: 0 0 auto; color: #6b607e; font-size: 11px; }
+.treasure-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.treasure-card {
+  display: flex; align-items: center; gap: 15px; min-width: 0; padding: 17px;
+  border: 1px solid #d8cfe4; border-radius: 16px;
+  background: linear-gradient(145deg, rgba(251,249,255,.92), rgba(244,241,250,.88));
+  box-shadow: 0 8px 28px rgba(61,48,83,.06);
+}
+.treasure-card.locked { border-color: #d7dcda; background: rgba(242,245,243,.84); }
+.treasure-icon { flex: 0 0 auto; width: 64px; height: 64px; }
+.treasure-icon.locked * { fill: #050505 !important; stroke: #050505 !important; }
+.treasure-card h3 { margin: 0; color: #493e60; font-size: 15px; }
+.treasure-card p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.treasure-card small { display: block; margin-top: 8px; color: #8067a0; font-size: 10px; }
+.treasure-card.locked h3 { color: #313735; letter-spacing: .18em; }
 
 .basket-summary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
 .basket-summary > span {
@@ -267,6 +288,8 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .fishing-log-card > header em { padding: 5px 9px; border-radius: 999px; font-size: 11px; font-style: normal; }
 .fishing-log-card > header em.caught { color: #6f5723; background: #fff2ca; }
 .fishing-log-card > header em.missed { color: #617372; background: #eaf1ed; }
+.fishing-log-card > header em.treasure { color: #fff; background: linear-gradient(135deg, #514067, #8768a5); }
+.fishing-log-card.treasure-found { border-color: #c7b3dc; box-shadow: 0 8px 28px rgba(81,64,103,.10); }
 .round-meta { display: flex; gap: 16px; margin-top: 11px; color: var(--muted); font-size: 11px; }
 .event-timeline { margin-top: 12px; border-top: 1px solid #e2ebe6; border-bottom: 1px solid #e2ebe6; }
 .event-timeline summary { padding: 10px 0; color: #547170; cursor: pointer; font-size: 11px; }
@@ -277,6 +300,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .caught-copy { min-width: 0; }
 .caught-copy h3 { margin: 0; color: #2d5557; font-size: 16px; }
 .caught-copy p, .miss-result { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.treasure-result { margin: 12px 0 0; color: #5f4d75; font-size: 12px; font-weight: 600; line-height: 1.65; }
 .caught-copy > div { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
 .caught-copy > div span { padding: 4px 7px; border-radius: 7px; color: #476968; background: var(--paper-soft); font-size: 10px; }
 .catch-disposition { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #e2ebe6; }
@@ -384,7 +408,8 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .bobber-button { position: relative; width: 104px; height: 104px; border: 0; border-radius: 24px; background: transparent; padding: 0; }
 .bobber-hit-area { position: absolute; inset: 2px; border-radius: 50%; }
 .bobber-cat-scene, .bobber-float-layer {
-  position: absolute; inset: var(--bobber-skin-inset, 0); width: auto; height: auto; object-fit: contain; pointer-events: none;
+  position: absolute; inset: 0; width: 100%; height: 100%; box-sizing: border-box;
+  padding: var(--bobber-skin-inset, 0); object-fit: contain; pointer-events: none;
 }
 .bobber-cat-scene {
   z-index: 0; filter: drop-shadow(0 5px 4px rgba(24,61,63,.24));
@@ -443,7 +468,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
   .content { padding: 26px; }
   .hero-card, .bait-layout { grid-template-columns: 1fr; }
   .water-scene { min-height: 150px; }
-  .fish-record-grid, .basket-grid, .store-grid { grid-template-columns: 1fr; }
+  .fish-record-grid, .treasure-grid, .basket-grid, .store-grid { grid-template-columns: 1fr; }
   .player-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-layout { grid-template-columns: 1fr; }
   .settings-save-card { grid-column: auto; }
@@ -453,7 +478,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) { color: #dbeae5; background: #172527; --ink: #dbeae5; --muted: #9fb1ad; --paper: #1e3031; --paper-soft: #223638; --line: #354b4b; --lake-soft: #254647; }
   :root:not([data-theme="light"]) .app-shell { background: radial-gradient(circle at 78% 8%, rgba(176,131,66,.12), transparent 24rem), linear-gradient(145deg, #1a2b2d, #222e2c); }
-  :root:not([data-theme="light"]) .hero-card, :root:not([data-theme="light"]) .metric-card, :root:not([data-theme="light"]) .paper-card, :root:not([data-theme="light"]) .panel-paper, :root:not([data-theme="light"]) .fish-record-card, :root:not([data-theme="light"]) .basket-card, :root:not([data-theme="light"]) .fishing-log-card, :root:not([data-theme="light"]) .player-summary-grid article, :root:not([data-theme="light"]) .store-balance article, :root:not([data-theme="light"]) .store-card, :root:not([data-theme="light"]) .settings-save-card, :root:not([data-theme="light"]) .bobber-toast-card { background-color: rgba(28,45,46,.97); }
+  :root:not([data-theme="light"]) .hero-card, :root:not([data-theme="light"]) .metric-card, :root:not([data-theme="light"]) .paper-card, :root:not([data-theme="light"]) .panel-paper, :root:not([data-theme="light"]) .fish-record-card, :root:not([data-theme="light"]) .treasure-card, :root:not([data-theme="light"]) .basket-card, :root:not([data-theme="light"]) .fishing-log-card, :root:not([data-theme="light"]) .player-summary-grid article, :root:not([data-theme="light"]) .store-balance article, :root:not([data-theme="light"]) .store-card, :root:not([data-theme="light"]) .settings-save-card, :root:not([data-theme="light"]) .bobber-toast-card { background-color: rgba(28,45,46,.97); }
   :root:not([data-theme="light"]) .player-summary-grid article.has-pending { background: rgba(92,70,31,.55); }
   :root:not([data-theme="light"]) h1, :root:not([data-theme="light"]) .hero-card h2, :root:not([data-theme="light"]) .section-intro h2, :root:not([data-theme="light"]) .fish-card-head h3, :root:not([data-theme="light"]) .basket-card h3, :root:not([data-theme="light"]) .basket-summary strong, :root:not([data-theme="light"]) .countdown strong, :root:not([data-theme="light"]) .metric-card strong, :root:not([data-theme="light"]) .paper-card h3, :root:not([data-theme="light"]) .panel-head strong, :root:not([data-theme="light"]) .panel-time, :root:not([data-theme="light"]) .detail-row strong, :root:not([data-theme="light"]) .settings-toggle strong, :root:not([data-theme="light"]) .setting-copy strong, :root:not([data-theme="light"]) .settings-save-card strong { color: #d7ece7; }
   :root:not([data-theme="light"]) .field-label input, :root:not([data-theme="light"]) .ingredient-row input { background: #253b3c; }
@@ -465,7 +490,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 
 :root[data-theme="dark"] { color: #dbeae5; background: #172527; --ink: #dbeae5; --muted: #9fb1ad; --paper: #1e3031; --paper-soft: #223638; --line: #354b4b; --lake-soft: #254647; }
 :root[data-theme="dark"] .app-shell { background: radial-gradient(circle at 78% 8%, rgba(176,131,66,.12), transparent 24rem), linear-gradient(145deg, #1a2b2d, #222e2c); }
-:root[data-theme="dark"] .hero-card, :root[data-theme="dark"] .metric-card, :root[data-theme="dark"] .paper-card, :root[data-theme="dark"] .panel-paper, :root[data-theme="dark"] .fish-record-card, :root[data-theme="dark"] .basket-card, :root[data-theme="dark"] .fishing-log-card, :root[data-theme="dark"] .player-summary-grid article, :root[data-theme="dark"] .store-balance article, :root[data-theme="dark"] .store-card, :root[data-theme="dark"] .settings-save-card, :root[data-theme="dark"] .bobber-toast-card { background-color: rgba(28,45,46,.97); }
+:root[data-theme="dark"] .hero-card, :root[data-theme="dark"] .metric-card, :root[data-theme="dark"] .paper-card, :root[data-theme="dark"] .panel-paper, :root[data-theme="dark"] .fish-record-card, :root[data-theme="dark"] .treasure-card, :root[data-theme="dark"] .basket-card, :root[data-theme="dark"] .fishing-log-card, :root[data-theme="dark"] .player-summary-grid article, :root[data-theme="dark"] .store-balance article, :root[data-theme="dark"] .store-card, :root[data-theme="dark"] .settings-save-card, :root[data-theme="dark"] .bobber-toast-card { background-color: rgba(28,45,46,.97); }
 :root[data-theme="dark"] .player-summary-grid article.has-pending { background: rgba(92,70,31,.55); }
 :root[data-theme="dark"] h1, :root[data-theme="dark"] .hero-card h2, :root[data-theme="dark"] .section-intro h2, :root[data-theme="dark"] .fish-card-head h3, :root[data-theme="dark"] .basket-card h3, :root[data-theme="dark"] .basket-summary strong, :root[data-theme="dark"] .countdown strong, :root[data-theme="dark"] .metric-card strong, :root[data-theme="dark"] .paper-card h3, :root[data-theme="dark"] .panel-head strong, :root[data-theme="dark"] .panel-time, :root[data-theme="dark"] .detail-row strong, :root[data-theme="dark"] .settings-toggle strong, :root[data-theme="dark"] .setting-copy strong, :root[data-theme="dark"] .settings-save-card strong { color: #d7ece7; }
 :root[data-theme="dark"] .field-label input, :root[data-theme="dark"] .ingredient-row input { background: #253b3c; }

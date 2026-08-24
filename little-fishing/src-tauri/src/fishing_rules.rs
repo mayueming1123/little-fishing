@@ -1,7 +1,7 @@
 use rand::{Rng, seq::IndexedRandom};
 use serde::{Deserialize, Serialize};
 
-const MISS_DESCRIPTIONS: [&str; 20] = [
+const MISS_DESCRIPTIONS: [&str; 30] = [
     "鱼饵安静地泡完了这一轮，附近的鱼似乎另有安排。",
     "浮标认真值守到最后，可惜水下没有谁正式接单。",
     "有几次细小动静，但都没发展成真正的咬口。",
@@ -22,9 +22,19 @@ const MISS_DESCRIPTIONS: [&str; 20] = [
     "这一竿没有发生奇迹，但也没有发生麻烦。",
     "鱼饵和水流相处得不错，只是没有交到鱼类朋友。",
     "空钩回来时很轻，轻得很符合今天的养生主题。",
+    "收线时只带回一小片水草，至少它很配合地上了岸。",
+    "鱼饵少了一角，真正负责品尝的客人却没有露面。",
+    "浮标忙碌了半天，最后提交了一份没有鱼的工作报告。",
+    "钩尖留下几道细小痕迹，嫌疑鱼已经顺利离场。",
+    "这一轮水下很有礼貌，没有任何鱼来打扰你的安静。",
+    "鱼线回到岸边时一身轻松，仿佛只是下水散了个步。",
+    "有鱼在附近制造了足够多的悬念，但没有负责结尾。",
+    "饵料已经充分表达诚意，鱼群决定改天再谈。",
+    "最后一次浮标晃动仍然是水流，今天的鱼嘴很严。",
+    "这一竿把耐心完整带回来了，只有鱼留在原地。",
 ];
 
-const CATCH_DESCRIPTIONS: [&str; 20] = [
+const CATCH_DESCRIPTIONS: [&str; 30] = [
     "浮标干脆地下沉，收线后发现这次确实不是水草。",
     "鱼线忽然走直，一条鱼把安静的水面拉出了动静。",
     "浮标连续点动后没入水中，这一口来得很认真。",
@@ -45,9 +55,19 @@ const CATCH_DESCRIPTIONS: [&str; 20] = [
     "浮标在原地打了个转，随后干脆利落地消失。",
     "收线时阻力越来越清楚，水草的嫌疑终于被排除。",
     "这一口没有太多预告，却给了这一竿一个完整结尾。",
+    "浮标猛地斜走，扬竿后鱼线立刻传回沉甸甸的回应。",
+    "水下先是安静，随后一股力道把钓线拉成了直线。",
+    "鱼口来得很轻，耐心多等半秒才把它稳稳带住。",
+    "浮标忽然顶起一截，这次反常动作果然藏着一条鱼。",
+    "收线时水面划出长长一道弧，鱼终于在岸边现身。",
+    "竿稍连续点动，提竿那刻传来的重量让等待有了回报。",
+    "一阵突然的挣扎打破安静，这位食客已经来不及改口。",
+    "浮标贴着水面滑行，鱼线另一端给出了明确的答案。",
+    "鱼钩从深处带回一串气泡，也带回了本轮的主角。",
+    "最后几米收线格外热闹，一条鱼带着水花抵达岸边。",
 ];
 
-const FISH_FEATURE_DESCRIPTIONS: [&str; 20] = [
+const FISH_FEATURE_DESCRIPTIONS: [&str; 30] = [
     "鳞片在光下泛着一层很细的亮色。",
     "背部颜色偏深，腹侧则明显浅了一截。",
     "尾鳍边缘完整，摆动起来很有力。",
@@ -68,7 +88,20 @@ const FISH_FEATURE_DESCRIPTIONS: [&str; 20] = [
     "鱼身摸起来格外光滑，几乎没有粗糙感。",
     "体侧的颜色从背到腹缓慢过渡，没有明显分界。",
     "这条鱼没有特别夸张的外表，但体态十分匀称。",
+    "背鳍末端带着一圈浅色，收拢后才不太明显。",
+    "眼睛周围的颜色略深，看起来像戴了一副小眼罩。",
+    "体侧有一道细长亮纹，从鳃盖一直延伸到尾柄。",
+    "尾鳍展开得很宽，边缘像被仔细修整过。",
+    "鳞片间夹着几处细小深点，排列得没有固定规律。",
+    "嘴部比同类稍宽，咬住鱼钩时显得格外坚决。",
+    "腹侧泛着淡淡珠光，离开水面后仍然很清楚。",
+    "鱼身略微扁宽，转身时能反出一整片柔和亮色。",
+    "背部留着一道旧伤痕，已经长得平整而结实。",
+    "各片鱼鳍颜色深浅不同，像临时拼出的一套配色。",
 ];
+
+const TREASURE_ROLL_SCALE: u16 = 10_000;
+const TREASURE_WINNING_ROLLS: u16 = 30;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -184,6 +217,16 @@ pub struct FishRecord {
     pub latest_description: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreasureRecord {
+    pub treasure_id: i64,
+    pub discovered: bool,
+    pub name: String,
+    pub description: String,
+    pub found_count: u64,
+}
+
 #[derive(Clone, Debug)]
 pub struct FishProfile {
     pub id: i64,
@@ -217,6 +260,12 @@ pub struct FishSpeciesSeed {
     pub price_source_date: &'static str,
 }
 
+pub struct LegendaryTreasureSeed {
+    pub id: i64,
+    pub name: &'static str,
+    pub description: &'static str,
+}
+
 pub struct BaitIngredientSeed {
     pub id: i64,
     pub name: &'static str,
@@ -241,6 +290,12 @@ pub enum RoundOutcome {
         best_similarity: f64,
         below_similarity_threshold: bool,
     },
+    TreasureFound {
+        treasure_id: i64,
+        treasure_name: String,
+        description: String,
+        best_similarity: f64,
+    },
 }
 
 impl RoundOutcome {
@@ -260,6 +315,11 @@ impl RoundOutcome {
                 weight_kg
             ),
             Self::Missed { reason, .. } => reason.clone(),
+            Self::TreasureFound {
+                treasure_name,
+                description,
+                ..
+            } => format!("没有钓到鱼，却发现了隐藏传说「{treasure_name}」。{description}"),
         }
     }
 }
@@ -278,6 +338,36 @@ pub fn outcome_description_seeds() -> Vec<(&'static str, u32, &'static str)> {
             .map(move |(index, description)| (category, index as u32 + 1, *description))
     })
     .collect()
+}
+
+pub fn legendary_treasure_seeds() -> Vec<LegendaryTreasureSeed> {
+    vec![
+        LegendaryTreasureSeed {
+            id: 1,
+            name: "巨大的黑色珍珠",
+            description: "它几乎有拳头那么大，黑色表面映着一圈幽蓝光泽。没人知道是哪只河蚌把梦想做得如此夸张。",
+        },
+        LegendaryTreasureSeed {
+            id: 2,
+            name: "白雪公主穿过的水晶鞋",
+            description: "鞋面晶莹得不像在水底待过，只是尺码小得惊人。至于那位公主是否真的穿过，岸边暂时无人能够作证。",
+        },
+        LegendaryTreasureSeed {
+            id: 3,
+            name: "一套看不出是什么公司的公章",
+            description: "盒里整整齐齐摆着几枚公章，字迹却被水泡得完全认不出来。它们最好继续保持退休状态。",
+        },
+        LegendaryTreasureSeed {
+            id: 4,
+            name: "长得很像宝剑的树枝",
+            description: "笔直枝干带着天然护手，挥起来还真有几分气势。认真看三秒以后，它依然只是一根非常努力的树枝。",
+        },
+        LegendaryTreasureSeed {
+            id: 5,
+            name: "武功秘籍",
+            description: "封面只剩下“神功”两个字，内页大半已经粘在一起。勉强翻开的那页认真讲解了如何保持呼吸平稳。",
+        },
+    ]
 }
 
 pub fn fish_species_seeds() -> Vec<FishSpeciesSeed> {
@@ -620,6 +710,116 @@ pub fn fish_species_seeds() -> Vec<FishSpeciesSeed> {
             price_source_url: xiamen_aug,
             price_source_date: "2025-08-20",
         },
+        FishSpeciesSeed {
+            id: 31,
+            name: "罗非鱼",
+            price_per_kg: 15.00,
+            min_length_cm: 12.0,
+            max_length_cm: 60.0,
+            min_weight_kg: 0.08,
+            max_weight_kg: 5.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 32,
+            name: "蓝子鱼",
+            price_per_kg: 20.00,
+            min_length_cm: 10.0,
+            max_length_cm: 45.0,
+            min_weight_kg: 0.05,
+            max_weight_kg: 1.8,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 33,
+            name: "龙头鱼",
+            price_per_kg: 18.00,
+            min_length_cm: 10.0,
+            max_length_cm: 45.0,
+            min_weight_kg: 0.03,
+            max_weight_kg: 1.2,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 34,
+            name: "太阳鱼",
+            price_per_kg: 30.00,
+            min_length_cm: 8.0,
+            max_length_cm: 35.0,
+            min_weight_kg: 0.03,
+            max_weight_kg: 1.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 35,
+            name: "黑鲷",
+            price_per_kg: 38.00,
+            min_length_cm: 15.0,
+            max_length_cm: 75.0,
+            min_weight_kg: 0.12,
+            max_weight_kg: 6.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 36,
+            name: "斜带髭鲷",
+            price_per_kg: 46.00,
+            min_length_cm: 20.0,
+            max_length_cm: 85.0,
+            min_weight_kg: 0.2,
+            max_weight_kg: 8.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 37,
+            name: "日本金线鱼",
+            price_per_kg: 46.00,
+            min_length_cm: 12.0,
+            max_length_cm: 50.0,
+            min_weight_kg: 0.06,
+            max_weight_kg: 2.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 38,
+            name: "马鲅",
+            price_per_kg: 58.00,
+            min_length_cm: 30.0,
+            max_length_cm: 180.0,
+            min_weight_kg: 0.5,
+            max_weight_kg: 35.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 39,
+            name: "弹涂鱼",
+            price_per_kg: 90.00,
+            min_length_cm: 5.0,
+            max_length_cm: 30.0,
+            min_weight_kg: 0.01,
+            max_weight_kg: 0.35,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 40,
+            name: "条纹斑竹鲨",
+            price_per_kg: 260.00,
+            min_length_cm: 35.0,
+            max_length_cm: 120.0,
+            min_weight_kg: 0.6,
+            max_weight_kg: 12.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
     ]
 }
 
@@ -902,6 +1102,30 @@ pub fn bait_similarity(bait: FlavorVector, preference: FlavorVector) -> f64 {
     (1.0 - (squared_distance / 5.0).sqrt()).clamp(0.0, 1.0)
 }
 
+fn treasure_roll_succeeds(roll: u16) -> bool {
+    roll < TREASURE_WINNING_ROLLS
+}
+
+fn roll_legendary_treasure<R: Rng + ?Sized>(
+    best_similarity: f64,
+    rng: &mut R,
+) -> Option<RoundOutcome> {
+    let roll = rng.random_range(0..TREASURE_ROLL_SCALE);
+    if !treasure_roll_succeeds(roll) {
+        return None;
+    }
+    let treasures = legendary_treasure_seeds();
+    let treasure = treasures
+        .choose(rng)
+        .expect("legendary treasure pool is not empty");
+    Some(RoundOutcome::TreasureFound {
+        treasure_id: treasure.id,
+        treasure_name: treasure.name.to_owned(),
+        description: treasure.description.to_owned(),
+        best_similarity,
+    })
+}
+
 pub fn resolve_round<R: Rng + ?Sized>(
     bait: &BaitProfile,
     fish: &[FishProfile],
@@ -928,6 +1152,9 @@ pub fn resolve_round<R: Rng + ?Sized>(
     candidates.sort_by(|left, right| right.1.total_cmp(&left.1));
 
     if candidates.is_empty() {
+        if let Some(treasure) = roll_legendary_treasure(best_similarity, rng) {
+            return treasure;
+        }
         return RoundOutcome::Missed {
             reason: "这份鱼饵与今天所有鱼的隐藏偏好都相差太远，因此完全没有中鱼可能。".to_owned(),
             best_similarity,
@@ -942,6 +1169,9 @@ pub fn resolve_round<R: Rng + ?Sized>(
         .unwrap_or(0.0);
     let catch_probability = (0.08 + best_fit_progress * 0.47).clamp(0.08, 0.55);
     if !rng.random_bool(catch_probability) {
+        if let Some(treasure) = roll_legendary_treasure(best_similarity, rng) {
+            return treasure;
+        }
         return RoundOutcome::Missed {
             reason: texts
                 .misses
@@ -1122,14 +1352,23 @@ mod tests {
                 counts[index] += 1;
                 counts
             });
-        assert_eq!(counts, [10, 7, 6, 4, 3]);
+        assert_eq!(counts, [13, 9, 8, 6, 4]);
     }
 
     #[test]
-    fn each_outcome_category_has_twenty_descriptions() {
-        assert_eq!(CATCH_DESCRIPTIONS.len(), 20);
-        assert_eq!(MISS_DESCRIPTIONS.len(), 20);
-        assert_eq!(FISH_FEATURE_DESCRIPTIONS.len(), 20);
-        assert_eq!(outcome_description_seeds().len(), 60);
+    fn each_outcome_category_has_thirty_descriptions() {
+        assert_eq!(CATCH_DESCRIPTIONS.len(), 30);
+        assert_eq!(MISS_DESCRIPTIONS.len(), 30);
+        assert_eq!(FISH_FEATURE_DESCRIPTIONS.len(), 30);
+        assert_eq!(outcome_description_seeds().len(), 90);
+    }
+
+    #[test]
+    fn legendary_treasure_roll_is_exactly_point_three_percent() {
+        let winning_rolls = (0..TREASURE_ROLL_SCALE)
+            .filter(|roll| treasure_roll_succeeds(*roll))
+            .count();
+        assert_eq!(winning_rolls, 30);
+        assert_eq!(legendary_treasure_seeds().len(), 5);
     }
 }

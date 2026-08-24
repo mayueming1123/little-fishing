@@ -11,6 +11,7 @@ import {
   type BaitRecipeComponent,
   type BobberToastPayload,
   type FishRecord,
+  type TreasureRecord,
   type FishingLogEntry,
   type PlayerSummary,
   type PrototypeState,
@@ -78,6 +79,10 @@ export async function saveBaitRecipe(
 
 export async function getFishRecords(): Promise<FishRecord[]> {
   return isTauriRuntime() ? invoke<FishRecord[]>("get_fish_records") : [];
+}
+
+export async function getTreasureRecords(): Promise<TreasureRecord[]> {
+  return isTauriRuntime() ? invoke<TreasureRecord[]>("get_treasure_records") : [];
 }
 
 export async function getPlayerSummary(): Promise<PlayerSummary> {
