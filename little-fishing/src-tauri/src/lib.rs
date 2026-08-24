@@ -32,6 +32,25 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 const STATE_EVENT: &str = "prototype-state-changed";
 const SETTINGS_EVENT: &str = "app-settings-changed";
 const TOAST_EVENT: &str = "bobber-toast";
+const ACHIEVEMENT_SKIN_ID: &str = "bengal";
+const ACHIEVEMENT_WEIGHT_KG: f64 = 1_000.0;
+
+fn shop_skin_price(value: &str) -> Option<f64> {
+    match value {
+        "gray" => Some(5_000.0),
+        "calico" => Some(10_000.0),
+        "siamese" => Some(20_000.0),
+        "silver_tabby" | "tuxedo" | "ragdoll" => Some(30_000.0),
+        _ => None,
+    }
+}
+
+fn is_known_skin_id(value: &str) -> bool {
+    matches!(
+        value,
+        "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal"
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FishingPhase {
@@ -329,10 +348,7 @@ impl AppSettings {
         } else {
             "system".to_owned()
         };
-        let bobber_skin = if matches!(
-            value.bobber_skin.as_str(),
-            "orange" | "gray" | "calico" | "siamese"
-        ) {
+        let bobber_skin = if is_known_skin_id(&value.bobber_skin) {
             value.bobber_skin
         } else {
             "orange".to_owned()
@@ -387,6 +403,28 @@ struct ToastState {
 struct BobberToastPayload {
     title: String,
     body: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkinStoreState {
+    money: f64,
+    body_weight_kg: f64,
+    owned_skin_ids: Vec<String>,
+}
+
+fn load_skin_store_state(store: &SqliteStore) -> Result<SkinStoreState, String> {
+    let player = store
+        .load_player_summary()
+        .map_err(|error| error.to_string())?;
+    let owned_skin_ids = store
+        .load_owned_skin_ids()
+        .map_err(|error| error.to_string())?;
+    Ok(SkinStoreState {
+        money: player.money,
+        body_weight_kg: player.body_weight_kg,
+        owned_skin_ids,
+    })
 }
 
 fn snapshot(app: &AppHandle) -> PrototypeSnapshot {
@@ -1034,10 +1072,80 @@ fn get_player_summary(app: AppHandle) -> Result<PlayerSummary, String> {
 }
 
 #[tauri::command]
+fn get_skin_store_state(app: AppHandle) -> Result<SkinStoreState, String> {
+    load_skin_store_state(&app.state::<PersistenceState>().store)
+}
+
+#[tauri::command]
+fn purchase_skin(app: AppHandle, skin_id: String) -> Result<SkinStoreState, String> {
+    let price = shop_skin_price(&skin_id).ok_or_else(|| "这款皮肤不是商店售卖项目".to_owned())?;
+    let persistence = app.state::<PersistenceState>();
+    let current = load_skin_store_state(&persistence.store)?;
+    if current.owned_skin_ids.iter().any(|owned| owned == &skin_id) {
+        return Err("这款皮肤已经拥有".to_owned());
+    }
+    if current.money < price {
+        return Err(format!("金币不足，还差 {:.0} 金币", price - current.money));
+    }
+    persistence
+        .store
+        .purchase_skin(
+            &skin_id,
+            price,
+            &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => "金币不足，购买没有完成".to_owned(),
+            rusqlite::Error::InvalidQuery => "这款皮肤已经拥有".to_owned(),
+            _ => error.to_string(),
+        })?;
+    load_skin_store_state(&persistence.store)
+}
+
+#[tauri::command]
+fn claim_weight_skin(app: AppHandle, skin_id: String) -> Result<SkinStoreState, String> {
+    if skin_id != ACHIEVEMENT_SKIN_ID {
+        return Err("这款皮肤不是体重成就奖励".to_owned());
+    }
+    let persistence = app.state::<PersistenceState>();
+    let current = load_skin_store_state(&persistence.store)?;
+    if current.owned_skin_ids.iter().any(|owned| owned == &skin_id) {
+        return Err("这款皮肤已经拥有".to_owned());
+    }
+    if current.body_weight_kg < ACHIEVEMENT_WEIGHT_KG {
+        return Err(format!(
+            "体重尚未达标，还差 {:.1} kg",
+            ACHIEVEMENT_WEIGHT_KG - current.body_weight_kg
+        ));
+    }
+    persistence
+        .store
+        .claim_weight_skin(
+            &skin_id,
+            ACHIEVEMENT_WEIGHT_KG,
+            &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => "体重尚未达到 1000 kg".to_owned(),
+            rusqlite::Error::InvalidQuery => "这款皮肤已经拥有".to_owned(),
+            _ => error.to_string(),
+        })?;
+    load_skin_store_state(&persistence.store)
+}
+
+#[tauri::command]
 fn get_fishing_log(app: AppHandle, limit: Option<u32>) -> Result<Vec<FishingLogEntry>, String> {
     app.state::<PersistenceState>()
         .store
         .load_fishing_log(limit.unwrap_or(100))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_pending_catches(app: AppHandle) -> Result<Vec<FishingLogEntry>, String> {
+    app.state::<PersistenceState>()
+        .store
+        .load_pending_catches()
         .map_err(|error| error.to_string())
 }
 
@@ -1089,11 +1197,16 @@ fn update_app_settings(app: AppHandle, mut settings: AppSettings) -> Result<AppS
     if !matches!(settings.theme.as_str(), "system" | "light" | "dark") {
         return Err("未知的界面主题".to_owned());
     }
-    if !matches!(
-        settings.bobber_skin.as_str(),
-        "orange" | "gray" | "calico" | "siamese"
-    ) {
+    if !is_known_skin_id(&settings.bobber_skin) {
         return Err("未知的悬浮猫咪皮肤".to_owned());
+    }
+    if !app
+        .state::<PersistenceState>()
+        .store
+        .is_skin_owned(&settings.bobber_skin)
+        .map_err(|error| error.to_string())?
+    {
+        return Err("这款皮肤尚未解锁，请先前往商店".to_owned());
     }
     let autostart = app.autolaunch();
     let autostart_enabled = autostart.is_enabled().map_err(|error| error.to_string())?;
@@ -1310,7 +1423,11 @@ pub fn run() {
             save_bait_recipe,
             get_fish_records,
             get_player_summary,
+            get_skin_store_state,
+            purchase_skin,
+            claim_weight_skin,
             get_fishing_log,
+            get_pending_catches,
             handle_catch,
             get_app_settings,
             update_app_settings,
@@ -1329,6 +1446,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shop_skin_prices_follow_the_catalog() {
+        assert_eq!(shop_skin_price("gray"), Some(5_000.0));
+        assert_eq!(shop_skin_price("calico"), Some(10_000.0));
+        assert_eq!(shop_skin_price("siamese"), Some(20_000.0));
+        assert_eq!(shop_skin_price("silver_tabby"), Some(30_000.0));
+        assert_eq!(shop_skin_price("orange"), None);
+        assert_eq!(shop_skin_price("bengal"), None);
+    }
 
     #[test]
     fn toast_is_placed_next_to_the_bobber_without_leaving_the_monitor() {

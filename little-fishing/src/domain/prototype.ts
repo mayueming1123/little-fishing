@@ -77,10 +77,13 @@ export interface BaitEditorData {
   canEdit: boolean;
 }
 
+export type FishRarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
+
 export interface FishRecord {
   fishId: number;
   name: string;
   pricePerKg: number;
+  rarity: FishRarity;
   caughtCount: number;
   maxLengthCm: number | null;
   maxWeightKg: number | null;
@@ -107,6 +110,7 @@ export interface FishingLogEntry {
   resultType: "caught" | "missed";
   fishId: number | null;
   fishName: string | null;
+  fishRarity: FishRarity | null;
   lengthCm: number | null;
   weightKg: number | null;
   value: number | null;
@@ -123,7 +127,13 @@ export interface BobberToastPayload {
 }
 
 export type AppTheme = "system" | "light" | "dark";
-export type BobberSkinId = "orange" | "gray" | "calico" | "siamese";
+export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal";
+
+export interface SkinStoreState {
+  money: number;
+  bodyWeightKg: number;
+  ownedSkinIds: BobberSkinId[];
+}
 
 export interface AppSettings {
   notificationsEnabled: boolean;

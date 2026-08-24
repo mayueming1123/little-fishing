@@ -41,7 +41,7 @@ export function BobberView() {
       <span
         className="bobber-hit-area"
         data-skin={skin.value}
-        style={{ "--bobber-float-x": `${skin.floatX}%`, "--bobber-float-y": `${skin.floatY}%` } as CSSProperties}
+        style={{ "--bobber-float-x": `${skin.floatX}%`, "--bobber-float-y": `${skin.floatY}%`, "--bobber-skin-inset": `${skin.inset}%` } as CSSProperties}
       >
         <img className="bobber-cat-scene" src={skin.image} alt="" aria-hidden="true" draggable={false} />
         <img className="bobber-float-layer" src={skin.image} alt="" aria-hidden="true" draggable={false} />

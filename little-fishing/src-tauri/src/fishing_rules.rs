@@ -1,8 +1,6 @@
 use rand::{Rng, seq::IndexedRandom};
 use serde::{Deserialize, Serialize};
 
-pub const MINIMUM_CATCH_SIMILARITY: f64 = 0.42;
-
 const MISS_DESCRIPTIONS: [&str; 20] = [
     "鱼饵安静地泡完了这一轮，附近的鱼似乎另有安排。",
     "浮标认真值守到最后，可惜水下没有谁正式接单。",
@@ -94,6 +92,72 @@ impl FlavorVector {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FishRarity {
+    Common,
+    Uncommon,
+    Rare,
+    Epic,
+    Legendary,
+}
+
+impl FishRarity {
+    pub fn from_price(price_per_kg: f64) -> Self {
+        if price_per_kg <= 20.0 {
+            Self::Common
+        } else if price_per_kg <= 40.0 {
+            Self::Uncommon
+        } else if price_per_kg <= 55.0 {
+            Self::Rare
+        } else if price_per_kg < 150.0 {
+            Self::Epic
+        } else {
+            Self::Legendary
+        }
+    }
+
+    pub const fn minimum_similarity(self) -> f64 {
+        match self {
+            Self::Common => 0.40,
+            Self::Uncommon => 0.52,
+            Self::Rare => 0.65,
+            Self::Epic => 0.78,
+            Self::Legendary => 0.90,
+        }
+    }
+
+    pub const fn storage_name(self) -> &'static str {
+        match self {
+            Self::Common => "common",
+            Self::Uncommon => "uncommon",
+            Self::Rare => "rare",
+            Self::Epic => "epic",
+            Self::Legendary => "legendary",
+        }
+    }
+
+    pub fn from_storage(value: &str) -> Self {
+        match value {
+            "uncommon" => Self::Uncommon,
+            "rare" => Self::Rare,
+            "epic" => Self::Epic,
+            "legendary" => Self::Legendary,
+            _ => Self::Common,
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Common => "普通",
+            Self::Uncommon => "少见",
+            Self::Rare => "稀有",
+            Self::Epic => "史诗",
+            Self::Legendary => "传说",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct BaitProfile {
     pub name: String,
@@ -113,6 +177,7 @@ pub struct FishRecord {
     pub fish_id: i64,
     pub name: String,
     pub price_per_kg: f64,
+    pub rarity: FishRarity,
     pub caught_count: u64,
     pub max_length_cm: Option<f64>,
     pub max_weight_kg: Option<f64>,
@@ -124,6 +189,8 @@ pub struct FishProfile {
     pub id: i64,
     pub name: String,
     pub price_per_kg: f64,
+    pub rarity: FishRarity,
+    pub minimum_similarity: f64,
     pub min_length_cm: f64,
     pub max_length_cm: f64,
     pub min_weight_kg: f64,
@@ -162,6 +229,7 @@ pub enum RoundOutcome {
     Caught {
         fish_id: i64,
         fish_name: String,
+        rarity: FishRarity,
         length_cm: f64,
         weight_kg: f64,
         value: f64,
@@ -180,13 +248,16 @@ impl RoundOutcome {
         match self {
             Self::Caught {
                 fish_name,
+                rarity,
                 length_cm,
                 weight_kg,
                 description,
                 ..
             } => format!(
-                "{description} 钓到{fish_name}，长 {:.1} 厘米，重 {:.2} 公斤。",
-                length_cm, weight_kg
+                "{description} 钓到{}级{fish_name}，长 {:.1} 厘米，重 {:.2} 公斤。",
+                rarity.label(),
+                length_cm,
+                weight_kg
             ),
             Self::Missed { reason, .. } => reason.clone(),
         }
@@ -837,20 +908,24 @@ pub fn resolve_round<R: Rng + ?Sized>(
     texts: &OutcomeTextCatalog,
     rng: &mut R,
 ) -> RoundOutcome {
-    let mut candidates: Vec<(&FishProfile, f64, f64)> = fish
+    let best_similarity = fish
+        .iter()
+        .map(|profile| bait_similarity(bait.flavor, profile.preference))
+        .max_by(f64::total_cmp)
+        .unwrap_or(0.0);
+    let mut candidates: Vec<(&FishProfile, f64, f64, f64)> = fish
         .iter()
         .map(|profile| {
             let similarity = bait_similarity(bait.flavor, profile.preference);
-            let weight = (similarity - MINIMUM_CATCH_SIMILARITY).max(0.0).powi(2);
-            (profile, similarity, weight)
+            let threshold = profile.minimum_similarity;
+            let fit_progress =
+                ((similarity - threshold) / (1.0 - threshold).max(f64::EPSILON)).clamp(0.0, 1.0);
+            let weight = 0.01 + fit_progress.powi(2);
+            (profile, similarity, weight, fit_progress)
         })
-        .filter(|(_, similarity, _)| *similarity >= MINIMUM_CATCH_SIMILARITY)
+        .filter(|(profile, similarity, _, _)| *similarity >= profile.minimum_similarity)
         .collect();
     candidates.sort_by(|left, right| right.1.total_cmp(&left.1));
-    let best_similarity = candidates
-        .first()
-        .map(|candidate| candidate.1)
-        .unwrap_or(0.0);
 
     if candidates.is_empty() {
         return RoundOutcome::Missed {
@@ -860,9 +935,12 @@ pub fn resolve_round<R: Rng + ?Sized>(
         };
     }
 
-    let catch_probability = (0.08
-        + (best_similarity - MINIMUM_CATCH_SIMILARITY) / (1.0 - MINIMUM_CATCH_SIMILARITY) * 0.47)
-        .clamp(0.08, 0.55);
+    let best_fit_progress = candidates
+        .iter()
+        .map(|candidate| candidate.3)
+        .max_by(f64::total_cmp)
+        .unwrap_or(0.0);
+    let catch_probability = (0.08 + best_fit_progress * 0.47).clamp(0.08, 0.55);
     if !rng.random_bool(catch_probability) {
         return RoundOutcome::Missed {
             reason: texts
@@ -885,7 +963,7 @@ pub fn resolve_round<R: Rng + ?Sized>(
         }
         target -= candidate.2;
     }
-    let (profile, similarity, _) = selected;
+    let (profile, similarity, _, _) = selected;
     let weight_kg = rng.random_range(profile.min_weight_kg..=profile.max_weight_kg);
     let weight_progress = ((weight_kg - profile.min_weight_kg)
         / (profile.max_weight_kg - profile.min_weight_kg).max(f64::EPSILON))
@@ -907,6 +985,7 @@ pub fn resolve_round<R: Rng + ?Sized>(
     RoundOutcome::Caught {
         fish_id: profile.id,
         fish_name: profile.name.clone(),
+        rarity: profile.rarity,
         length_cm,
         weight_kg,
         value: weight_kg * profile.price_per_kg,
@@ -941,6 +1020,8 @@ mod tests {
             id: 1,
             name: "测试鱼".to_owned(),
             price_per_kg: 10.0,
+            rarity: FishRarity::Common,
+            minimum_similarity: FishRarity::Common.minimum_similarity(),
             min_length_cm: 10.0,
             max_length_cm: 20.0,
             min_weight_kg: 0.1,
@@ -969,6 +1050,79 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn price_bands_define_rarity_and_similarity_thresholds() {
+        assert_eq!(FishRarity::from_price(20.0), FishRarity::Common);
+        assert_eq!(FishRarity::from_price(20.01), FishRarity::Uncommon);
+        assert_eq!(FishRarity::from_price(40.01), FishRarity::Rare);
+        assert_eq!(FishRarity::from_price(55.01), FishRarity::Epic);
+        assert_eq!(FishRarity::from_price(150.0), FishRarity::Legendary);
+        assert_eq!(FishRarity::Common.minimum_similarity(), 0.40);
+        assert_eq!(FishRarity::Legendary.minimum_similarity(), 0.90);
+    }
+
+    #[test]
+    fn legendary_fish_require_ninety_percent_similarity_to_enter_the_draw() {
+        let make_fish = |preference| FishProfile {
+            id: 1,
+            name: "传说测试鱼".to_owned(),
+            price_per_kg: 200.0,
+            rarity: FishRarity::Legendary,
+            minimum_similarity: FishRarity::Legendary.minimum_similarity(),
+            min_length_cm: 10.0,
+            max_length_cm: 20.0,
+            min_weight_kg: 0.1,
+            max_weight_kg: 0.5,
+            preference,
+        };
+        let texts = OutcomeTextCatalog {
+            catches: vec!["中鱼".to_owned()],
+            misses: vec!["空军".to_owned()],
+            features: vec!["特征".to_owned()],
+        };
+        let bait = BaitProfile {
+            name: "测试饵".to_owned(),
+            flavor: vector(0.0),
+        };
+
+        let mut rng = StdRng::seed_from_u64(2);
+        let below_threshold = resolve_round(&bait, &[make_fish(vector(0.11))], &texts, &mut rng);
+        assert!(matches!(
+            below_threshold,
+            RoundOutcome::Missed {
+                below_similarity_threshold: true,
+                ..
+            }
+        ));
+
+        let at_threshold = resolve_round(&bait, &[make_fish(vector(0.10))], &texts, &mut rng);
+        assert!(!matches!(
+            at_threshold,
+            RoundOutcome::Missed {
+                below_similarity_threshold: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn seeded_fish_are_distributed_across_all_rarity_bands() {
+        let counts = fish_species_seeds()
+            .into_iter()
+            .fold([0_u32; 5], |mut counts, fish| {
+                let index = match FishRarity::from_price(fish.price_per_kg) {
+                    FishRarity::Common => 0,
+                    FishRarity::Uncommon => 1,
+                    FishRarity::Rare => 2,
+                    FishRarity::Epic => 3,
+                    FishRarity::Legendary => 4,
+                };
+                counts[index] += 1;
+                counts
+            });
+        assert_eq!(counts, [10, 7, 6, 4, 3]);
     }
 
     #[test]

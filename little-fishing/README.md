@@ -4,14 +4,15 @@
 
 ## 当前功能
 
-- 桌面透明“猫咪钓鱼”悬浮图标、4 款可保存皮肤、系统托盘和紧凑状态面板
+- 桌面透明“猫咪钓鱼”悬浮图标、8 款可保存皮肤、系统托盘和紧凑状态面板
 - 每竿 30 秒至 2 小时，只显示已经垂钓的时长
 - 岸边、水面、钓组、动物与趣味插曲五类过程事件及中鱼/空军结果
 - 每竿随机开场状态文案，主界面持续展示最近事件轨迹
 - 30 种鱼、24 种鱼饵成分和每日重置的隐藏偏好
 - 自由配置鱼饵比例，属性保持隐藏
-- 30 种独立像素鱼图标，以及带外观特征描述的鱼类记录
-- 钓鱼日志、吃掉或卖出鱼获
+- 30 种独立像素鱼图标、按固定鱼价划分的五级稀有度，以及已钓到/未钓到筛选
+- 独立鱼篓集中显示尚未处理的鱼获，可选择吃掉或卖出；完整经过保留在钓鱼日志
+- 猫咪皮肤商店：橙子猫免费，6 款分别使用 5,000～30,000 金币购买，另有 1 款在体重达到 1000 kg 后领取
 - 本地 SQLite 存档和单轮离线结算
 - 浮标旁应用内提示，不调用 PowerShell 系统通知
 - 浅色、深色、减少动态效果和开机启动设置
@@ -40,7 +41,7 @@ npm run tauri build
 
 macOS 通用版 DMG 通过 GitHub Actions 的 Mac 构建机生成，详见 [`docs/MACOS_BUILD.md`](docs/MACOS_BUILD.md)。
 
-详细实现状态见 [`docs/M0_STATUS.md`](docs/M0_STATUS.md)，鱼价数据来源见 [`docs/FISH_DATA_SOURCES.md`](docs/FISH_DATA_SOURCES.md)。
+玩家玩法和完整功能见 [`docs/GAMEPLAY_AND_FEATURES.md`](docs/GAMEPLAY_AND_FEATURES.md)，详细实现状态见 [`docs/M0_STATUS.md`](docs/M0_STATUS.md)，鱼价数据来源见 [`docs/FISH_DATA_SOURCES.md`](docs/FISH_DATA_SOURCES.md)。
 
 ## 推荐开发环境
 

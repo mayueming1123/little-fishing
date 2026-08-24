@@ -1,4 +1,4 @@
-name: Build macOS DMG
+name: Build desktop installers
 
 on:
   workflow_dispatch:
@@ -10,6 +10,50 @@ permissions:
   contents: read
 
 jobs:
+  build-windows-nsis:
+    name: Windows NSIS installer
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: little-fishing/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: little-fishing/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: little-fishing
+        run: npm ci
+
+      - name: Check frontend
+        working-directory: little-fishing
+        run: npm run check
+
+      - name: Build Windows installer
+        working-directory: little-fishing
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: little-fishing-windows-nsis
+          path: little-fishing/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
   build-universal-dmg:
     name: Universal macOS DMG
     runs-on: macos-latest

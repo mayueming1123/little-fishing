@@ -163,6 +163,13 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
   color: var(--lake-deep); background: rgba(251,253,249,.72); font-size: 12px;
 }
 
+.record-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.record-filter button {
+  padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--muted); background: rgba(251,253,249,.76); font-size: 11px;
+}
+.record-filter button.active { color: white; border-color: var(--lake); background: var(--lake); }
+.record-filter button:focus-visible { outline: 3px solid rgba(229,184,91,.65); outline-offset: 2px; }
 .fish-record-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .fish-record-card {
   min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 16px;
@@ -170,8 +177,15 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 }
 .fish-card-head { display: flex; align-items: center; gap: 14px; }
 .pixel-fish { flex: 0 0 auto; width: 64px; height: 40px; image-rendering: pixelated; }
+.fish-title-line { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 .fish-card-head h3 { margin: 0; color: #2d5557; font-size: 17px; }
 .fish-card-head p { margin: 4px 0 0; color: #8a6b32; font-size: 12px; }
+.rarity-badge { padding: 3px 7px; border: 1px solid transparent; border-radius: 999px; font-size: 9px; font-weight: 700; line-height: 1; white-space: nowrap; }
+.rarity-common { color: #596864; border-color: #cbd5d1; background: #edf1ef; }
+.rarity-uncommon { color: #287052; border-color: #a9d5be; background: #e4f4eb; }
+.rarity-rare { color: #276a9a; border-color: #acd0e8; background: #e5f2fb; }
+.rarity-epic { color: #70509a; border-color: #d1bde6; background: #f1eafa; }
+.rarity-legendary { color: #9a4b22; border-color: #e5b367; background: linear-gradient(135deg, #fff2c7, #ffe0b8); box-shadow: 0 0 0 2px rgba(220,164,78,.10); }
 .fish-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
 .fish-stats div { min-width: 0; padding: 9px; border-radius: 10px; background: var(--paper-soft); }
 .fish-stats span { display: block; color: var(--muted); font-size: 10px; }
@@ -180,6 +194,33 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
   text-overflow: ellipsis; white-space: nowrap;
 }
 .fish-description { min-height: 2.9em; margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.fish-record-card.uncaught .pixel-fish { opacity: .56; filter: saturate(.28); }
+
+.basket-summary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.basket-summary > span {
+  padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px;
+  color: var(--muted); background: rgba(251,253,249,.76); font-size: 11px;
+}
+.basket-summary strong { margin-left: 5px; color: var(--lake-deep); font-size: 13px; }
+.basket-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.basket-card {
+  min-width: 0; padding: 18px; border: 1px solid #dfc276; border-radius: 16px;
+  background: rgba(255,251,239,.9); box-shadow: 0 8px 28px rgba(172,129,45,.07);
+}
+.basket-card > header { display: flex; align-items: center; gap: 13px; }
+.basket-card h3 { margin: 0; color: #2d5557; font-size: 17px; }
+.basket-card header p { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+.basket-description { min-height: 2.9em; margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.basket-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.basket-meta span { padding: 5px 7px; border-radius: 7px; color: #476968; background: rgba(245,247,237,.9); font-size: 10px; }
+.basket-bait { display: block; margin-top: 10px; color: #778c88; font-size: 10px; }
+.basket-card footer { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; padding-top: 13px; border-top: 1px solid rgba(193,169,107,.32); }
+.basket-card footer button { padding: 8px; border: 1px solid var(--line); border-radius: 9px; color: #315a5b; background: #f8fbf8; font-size: 11px; }
+.basket-card footer button:last-child { color: white; border-color: var(--lake); background: var(--lake); }
+.basket-card footer button:disabled { cursor: wait; opacity: .52; }
+.basket-empty { display: grid; gap: 7px; color: var(--muted); text-align: center; }
+.basket-empty strong { color: var(--lake-deep); font-size: 15px; }
+.basket-empty span { font-size: 12px; }
 
 .bait-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 16px; align-items: start; }
 .field-label { display: grid; gap: 7px; color: #365d5e; font-size: 12px; font-weight: 650; }
@@ -253,6 +294,42 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .empty-log { margin-top: 16px; color: var(--muted); font-size: 13px; text-align: center; }
 .log-rule-note { margin: 13px 2px 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
 
+.store-balance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.store-balance article {
+  min-width: 0; padding: 15px 18px; border: 1px solid var(--line); border-radius: 14px;
+  background: rgba(251,253,249,.84);
+}
+.store-balance span, .store-balance small { display: block; color: var(--muted); font-size: 11px; }
+.store-balance strong { display: block; margin: 5px 0 4px; color: var(--lake-deep); font-size: 21px; font-variant-numeric: tabular-nums; }
+.store-message { margin: 0 0 14px; }
+.store-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.store-card {
+  display: grid; grid-template-columns: minmax(150px, .78fr) minmax(0, 1.22fr); min-height: 236px;
+  overflow: hidden; border: 1px solid var(--line); border-radius: 17px;
+  background: rgba(251,253,249,.88); box-shadow: 0 8px 28px rgba(31,66,65,.055);
+}
+.store-card.owned { border-color: #8fbcb0; }
+.store-skin-stage { position: relative; display: grid; place-items: center; min-width: 0; overflow: hidden; background: linear-gradient(155deg, #f2f7e8, #e3f4ef); }
+.store-skin-stage img {
+  width: 100%; height: 100%; box-sizing: border-box; padding: var(--skin-preview-inset, 0);
+  object-fit: contain; pointer-events: none; filter: drop-shadow(0 6px 5px rgba(24,61,63,.15));
+}
+.owned-mark { position: absolute; top: 10px; left: 10px; padding: 5px 8px; border-radius: 999px; color: white; background: rgba(48,112,102,.9); font-size: 9px; }
+.store-card-copy { display: flex; flex-direction: column; min-width: 0; padding: 17px; }
+.store-card-copy header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.store-card-copy h3 { margin: 0; color: #2d5557; font-size: 17px; }
+.store-card-copy header p { min-height: 3em; margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.store-card-copy header em { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; color: #705629; background: #fff0c4; font-size: 9px; font-style: normal; }
+.store-price { margin: auto 0 11px; color: var(--muted); font-size: 11px; }
+.store-price strong { color: #805e20; font-size: 20px; font-variant-numeric: tabular-nums; }
+.store-card-copy > .primary-button { width: 100%; padding: 9px 12px; }
+.store-progress-block { margin: auto 0 11px; }
+.store-progress-block > div { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }
+.store-progress-block > div strong { color: var(--lake-deep); font-variant-numeric: tabular-nums; }
+.store-progress-block > i { display: block; height: 7px; margin-top: 7px; overflow: hidden; border-radius: 999px; background: #dce8e2; }
+.store-progress-block > i b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #4d9691, #e1b957); }
+.store-progress-block small { display: block; margin-top: 6px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+
 .settings-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .settings-group { display: grid; align-content: start; gap: 4px; }
 .settings-group h3 { padding-bottom: 12px; border-bottom: 1px solid #e2ebe6; }
@@ -284,7 +361,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
   display: grid; grid-template-rows: 68px auto; gap: 5px; align-items: center; padding: 7px;
   border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: var(--paper-soft);
 }
-.skin-option img { width: 100%; height: 68px; object-fit: contain; pointer-events: none; filter: drop-shadow(0 3px 2px rgba(24,61,63,.16)); }
+.skin-option img { width: 100%; height: 68px; box-sizing: border-box; padding: var(--skin-preview-inset, 0); object-fit: contain; pointer-events: none; filter: drop-shadow(0 3px 2px rgba(24,61,63,.16)); }
 .skin-option span { font-size: 11px; }
 .skin-option.active { color: #28585a; border-color: var(--lake); background: var(--lake-soft); box-shadow: 0 0 0 2px rgba(56,130,128,.12); }
 .skin-option:focus-visible { outline: 3px solid rgba(229,184,91,.65); outline-offset: 2px; }
@@ -307,7 +384,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .bobber-button { position: relative; width: 104px; height: 104px; border: 0; border-radius: 24px; background: transparent; padding: 0; }
 .bobber-hit-area { position: absolute; inset: 2px; border-radius: 50%; }
 .bobber-cat-scene, .bobber-float-layer {
-  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none;
+  position: absolute; inset: var(--bobber-skin-inset, 0); width: auto; height: auto; object-fit: contain; pointer-events: none;
 }
 .bobber-cat-scene {
   z-index: 0; filter: drop-shadow(0 5px 4px rgba(24,61,63,.24));
@@ -366,7 +443,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
   .content { padding: 26px; }
   .hero-card, .bait-layout { grid-template-columns: 1fr; }
   .water-scene { min-height: 150px; }
-  .fish-record-grid { grid-template-columns: 1fr; }
+  .fish-record-grid, .basket-grid, .store-grid { grid-template-columns: 1fr; }
   .player-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-layout { grid-template-columns: 1fr; }
   .settings-save-card { grid-column: auto; }
@@ -376,21 +453,23 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) { color: #dbeae5; background: #172527; --ink: #dbeae5; --muted: #9fb1ad; --paper: #1e3031; --paper-soft: #223638; --line: #354b4b; --lake-soft: #254647; }
   :root:not([data-theme="light"]) .app-shell { background: radial-gradient(circle at 78% 8%, rgba(176,131,66,.12), transparent 24rem), linear-gradient(145deg, #1a2b2d, #222e2c); }
-  :root:not([data-theme="light"]) .hero-card, :root:not([data-theme="light"]) .metric-card, :root:not([data-theme="light"]) .paper-card, :root:not([data-theme="light"]) .panel-paper, :root:not([data-theme="light"]) .fish-record-card, :root:not([data-theme="light"]) .fishing-log-card, :root:not([data-theme="light"]) .player-summary-grid article, :root:not([data-theme="light"]) .settings-save-card, :root:not([data-theme="light"]) .bobber-toast-card { background-color: rgba(28,45,46,.97); }
+  :root:not([data-theme="light"]) .hero-card, :root:not([data-theme="light"]) .metric-card, :root:not([data-theme="light"]) .paper-card, :root:not([data-theme="light"]) .panel-paper, :root:not([data-theme="light"]) .fish-record-card, :root:not([data-theme="light"]) .basket-card, :root:not([data-theme="light"]) .fishing-log-card, :root:not([data-theme="light"]) .player-summary-grid article, :root:not([data-theme="light"]) .store-balance article, :root:not([data-theme="light"]) .store-card, :root:not([data-theme="light"]) .settings-save-card, :root:not([data-theme="light"]) .bobber-toast-card { background-color: rgba(28,45,46,.97); }
   :root:not([data-theme="light"]) .player-summary-grid article.has-pending { background: rgba(92,70,31,.55); }
-  :root:not([data-theme="light"]) h1, :root:not([data-theme="light"]) .hero-card h2, :root:not([data-theme="light"]) .section-intro h2, :root:not([data-theme="light"]) .fish-card-head h3, :root:not([data-theme="light"]) .countdown strong, :root:not([data-theme="light"]) .metric-card strong, :root:not([data-theme="light"]) .paper-card h3, :root:not([data-theme="light"]) .panel-head strong, :root:not([data-theme="light"]) .panel-time, :root:not([data-theme="light"]) .detail-row strong, :root:not([data-theme="light"]) .settings-toggle strong, :root:not([data-theme="light"]) .setting-copy strong, :root:not([data-theme="light"]) .settings-save-card strong { color: #d7ece7; }
+  :root:not([data-theme="light"]) h1, :root:not([data-theme="light"]) .hero-card h2, :root:not([data-theme="light"]) .section-intro h2, :root:not([data-theme="light"]) .fish-card-head h3, :root:not([data-theme="light"]) .basket-card h3, :root:not([data-theme="light"]) .basket-summary strong, :root:not([data-theme="light"]) .countdown strong, :root:not([data-theme="light"]) .metric-card strong, :root:not([data-theme="light"]) .paper-card h3, :root:not([data-theme="light"]) .panel-head strong, :root:not([data-theme="light"]) .panel-time, :root:not([data-theme="light"]) .detail-row strong, :root:not([data-theme="light"]) .settings-toggle strong, :root:not([data-theme="light"]) .setting-copy strong, :root:not([data-theme="light"]) .settings-save-card strong { color: #d7ece7; }
   :root:not([data-theme="light"]) .field-label input, :root:not([data-theme="light"]) .ingredient-row input { background: #253b3c; }
-  :root:not([data-theme="light"]) .quiet-button, :root:not([data-theme="light"]) .panel-action, :root:not([data-theme="light"]) .theme-options button, :root:not([data-theme="light"]) .skin-option { background: #253b3c; color: #d6e9e4; }
+  :root:not([data-theme="light"]) .quiet-button, :root:not([data-theme="light"]) .panel-action, :root:not([data-theme="light"]) .record-filter button, :root:not([data-theme="light"]) .theme-options button, :root:not([data-theme="light"]) .skin-option { background: #253b3c; color: #d6e9e4; }
+  :root:not([data-theme="light"]) .record-filter button.active { background: var(--lake); color: white; }
   :root:not([data-theme="light"]) .theme-options button.active { background: var(--lake); color: white; }
   :root:not([data-theme="light"]) .skin-option.active { border-color: #67aaa5; background: #294b4b; color: white; }
 }
 
 :root[data-theme="dark"] { color: #dbeae5; background: #172527; --ink: #dbeae5; --muted: #9fb1ad; --paper: #1e3031; --paper-soft: #223638; --line: #354b4b; --lake-soft: #254647; }
 :root[data-theme="dark"] .app-shell { background: radial-gradient(circle at 78% 8%, rgba(176,131,66,.12), transparent 24rem), linear-gradient(145deg, #1a2b2d, #222e2c); }
-:root[data-theme="dark"] .hero-card, :root[data-theme="dark"] .metric-card, :root[data-theme="dark"] .paper-card, :root[data-theme="dark"] .panel-paper, :root[data-theme="dark"] .fish-record-card, :root[data-theme="dark"] .fishing-log-card, :root[data-theme="dark"] .player-summary-grid article, :root[data-theme="dark"] .settings-save-card, :root[data-theme="dark"] .bobber-toast-card { background-color: rgba(28,45,46,.97); }
+:root[data-theme="dark"] .hero-card, :root[data-theme="dark"] .metric-card, :root[data-theme="dark"] .paper-card, :root[data-theme="dark"] .panel-paper, :root[data-theme="dark"] .fish-record-card, :root[data-theme="dark"] .basket-card, :root[data-theme="dark"] .fishing-log-card, :root[data-theme="dark"] .player-summary-grid article, :root[data-theme="dark"] .store-balance article, :root[data-theme="dark"] .store-card, :root[data-theme="dark"] .settings-save-card, :root[data-theme="dark"] .bobber-toast-card { background-color: rgba(28,45,46,.97); }
 :root[data-theme="dark"] .player-summary-grid article.has-pending { background: rgba(92,70,31,.55); }
-:root[data-theme="dark"] h1, :root[data-theme="dark"] .hero-card h2, :root[data-theme="dark"] .section-intro h2, :root[data-theme="dark"] .fish-card-head h3, :root[data-theme="dark"] .countdown strong, :root[data-theme="dark"] .metric-card strong, :root[data-theme="dark"] .paper-card h3, :root[data-theme="dark"] .panel-head strong, :root[data-theme="dark"] .panel-time, :root[data-theme="dark"] .detail-row strong, :root[data-theme="dark"] .settings-toggle strong, :root[data-theme="dark"] .setting-copy strong, :root[data-theme="dark"] .settings-save-card strong { color: #d7ece7; }
+:root[data-theme="dark"] h1, :root[data-theme="dark"] .hero-card h2, :root[data-theme="dark"] .section-intro h2, :root[data-theme="dark"] .fish-card-head h3, :root[data-theme="dark"] .basket-card h3, :root[data-theme="dark"] .basket-summary strong, :root[data-theme="dark"] .countdown strong, :root[data-theme="dark"] .metric-card strong, :root[data-theme="dark"] .paper-card h3, :root[data-theme="dark"] .panel-head strong, :root[data-theme="dark"] .panel-time, :root[data-theme="dark"] .detail-row strong, :root[data-theme="dark"] .settings-toggle strong, :root[data-theme="dark"] .setting-copy strong, :root[data-theme="dark"] .settings-save-card strong { color: #d7ece7; }
 :root[data-theme="dark"] .field-label input, :root[data-theme="dark"] .ingredient-row input { background: #253b3c; }
-:root[data-theme="dark"] .quiet-button, :root[data-theme="dark"] .panel-action, :root[data-theme="dark"] .theme-options button, :root[data-theme="dark"] .skin-option { background: #253b3c; color: #d6e9e4; }
+:root[data-theme="dark"] .quiet-button, :root[data-theme="dark"] .panel-action, :root[data-theme="dark"] .record-filter button, :root[data-theme="dark"] .theme-options button, :root[data-theme="dark"] .skin-option { background: #253b3c; color: #d6e9e4; }
+:root[data-theme="dark"] .record-filter button.active { background: var(--lake); color: white; }
 :root[data-theme="dark"] .theme-options button.active { background: var(--lake); color: white; }
 :root[data-theme="dark"] .skin-option.active { border-color: #67aaa5; background: #294b4b; color: white; }

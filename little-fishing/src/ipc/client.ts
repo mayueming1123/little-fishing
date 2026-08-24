@@ -14,6 +14,8 @@ import {
   type FishingLogEntry,
   type PlayerSummary,
   type PrototypeState,
+  type SkinStoreState,
+  type BobberSkinId,
 } from "../domain/prototype";
 
 declare global {
@@ -22,6 +24,11 @@ declare global {
 
 let mockState = initialPrototypeState;
 let mockSettings = defaultAppSettings;
+let mockSkinStore: SkinStoreState = {
+  money: 0,
+  bodyWeightKg: 60,
+  ownedSkinIds: ["orange"],
+};
 const mockListeners = new Set<(state: PrototypeState) => void>();
 const mockSettingsListeners = new Set<(settings: AppSettings) => void>();
 
@@ -78,8 +85,45 @@ export async function getPlayerSummary(): Promise<PlayerSummary> {
   return { bodyWeightKg: 60, money: 0, pendingCatches: 0, eatenCount: 0, soldCount: 0 };
 }
 
+export async function getSkinStoreState(): Promise<SkinStoreState> {
+  return isTauriRuntime() ? invoke<SkinStoreState>("get_skin_store_state") : mockSkinStore;
+}
+
+export async function purchaseSkin(skinId: BobberSkinId): Promise<SkinStoreState> {
+  if (isTauriRuntime()) return invoke<SkinStoreState>("purchase_skin", { skinId });
+  const price = skinId === "gray" ? 5_000
+    : skinId === "calico" ? 10_000
+      : skinId === "siamese" ? 20_000
+        : ["silver_tabby", "tuxedo", "ragdoll"].includes(skinId) ? 30_000
+          : null;
+  if (price === null) throw new Error("这款皮肤不是商店售卖项目");
+  if (mockSkinStore.ownedSkinIds.includes(skinId)) throw new Error("这款皮肤已经拥有");
+  if (mockSkinStore.money < price) throw new Error("金币不足");
+  mockSkinStore = {
+    ...mockSkinStore,
+    money: mockSkinStore.money - price,
+    ownedSkinIds: [...mockSkinStore.ownedSkinIds, skinId],
+  };
+  return mockSkinStore;
+}
+
+export async function claimWeightSkin(skinId: BobberSkinId): Promise<SkinStoreState> {
+  if (isTauriRuntime()) return invoke<SkinStoreState>("claim_weight_skin", { skinId });
+  if (mockSkinStore.ownedSkinIds.includes(skinId)) throw new Error("这款皮肤已经拥有");
+  if (mockSkinStore.bodyWeightKg < 1_000) throw new Error("体重尚未达标");
+  mockSkinStore = {
+    ...mockSkinStore,
+    ownedSkinIds: [...mockSkinStore.ownedSkinIds, skinId],
+  };
+  return mockSkinStore;
+}
+
 export async function getFishingLog(limit = 100): Promise<FishingLogEntry[]> {
   return isTauriRuntime() ? invoke<FishingLogEntry[]>("get_fishing_log", { limit }) : [];
+}
+
+export async function getPendingCatches(): Promise<FishingLogEntry[]> {
+  return isTauriRuntime() ? invoke<FishingLogEntry[]>("get_pending_catches") : [];
 }
 
 export async function handleCatch(

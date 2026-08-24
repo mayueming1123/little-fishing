@@ -1,6 +1,7 @@
 use crate::fishing_rules::{
-    BaitIngredientInfo, BaitProfile, FishProfile, FishRecord, FlavorVector, OutcomeTextCatalog,
-    RoundOutcome, bait_ingredient_seeds, fish_species_seeds, outcome_description_seeds,
+    BaitIngredientInfo, BaitProfile, FishProfile, FishRarity, FishRecord, FlavorVector,
+    OutcomeTextCatalog, RoundOutcome, bait_ingredient_seeds, fish_species_seeds,
+    outcome_description_seeds,
 };
 use crate::round_engine::{EventCatalog, WaitingEvent, event_description_seeds};
 use rand::Rng;
@@ -71,6 +72,7 @@ pub struct FishingLogEntry {
     pub result_type: String,
     pub fish_id: Option<i64>,
     pub fish_name: Option<String>,
+    pub fish_rarity: Option<FishRarity>,
     pub length_cm: Option<f64>,
     pub weight_kg: Option<f64>,
     pub value: Option<f64>,
@@ -131,6 +133,8 @@ impl SqliteStore {
                  id INTEGER PRIMARY KEY,
                  name TEXT NOT NULL UNIQUE,
                  price_per_kg REAL NOT NULL,
+                 rarity TEXT NOT NULL DEFAULT 'common',
+                 minimum_similarity REAL NOT NULL DEFAULT 0.40,
                  min_length_cm REAL NOT NULL,
                  max_length_cm REAL NOT NULL,
                  min_weight_kg REAL NOT NULL,
@@ -205,6 +209,12 @@ impl SqliteStore {
                  updated_at TEXT NOT NULL
              );
 
+             CREATE TABLE IF NOT EXISTS skin_unlocks (
+                 skin_id TEXT PRIMARY KEY,
+                 unlock_source TEXT NOT NULL,
+                 unlocked_at TEXT NOT NULL
+             );
+
              CREATE TABLE IF NOT EXISTS app_settings (
                  id INTEGER PRIMARY KEY CHECK (id = 1),
                  notifications_enabled INTEGER NOT NULL DEFAULT 1,
@@ -215,6 +225,18 @@ impl SqliteStore {
                  bobber_skin TEXT NOT NULL DEFAULT 'orange',
                  updated_at TEXT NOT NULL
              );",
+        )?;
+        Self::ensure_column(
+            &connection,
+            "fish_species",
+            "rarity",
+            "TEXT NOT NULL DEFAULT 'common'",
+        )?;
+        Self::ensure_column(
+            &connection,
+            "fish_species",
+            "minimum_similarity",
+            "REAL NOT NULL DEFAULT 0.40",
         )?;
         for (category, sequence, description) in event_description_seeds() {
             connection.execute(
@@ -235,15 +257,19 @@ impl SqliteStore {
             )?;
         }
         for fish in fish_species_seeds() {
+            let rarity = FishRarity::from_price(fish.price_per_kg);
             connection.execute(
                 "INSERT INTO fish_species (
-                     id, name, price_per_kg, min_length_cm, max_length_cm,
+                     id, name, price_per_kg, rarity, minimum_similarity,
+                     min_length_cm, max_length_cm,
                      min_weight_kg, max_weight_kg, price_source_url,
                      price_source_date, enabled
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1)
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1)
                  ON CONFLICT(id) DO UPDATE SET
                      name = excluded.name,
                      price_per_kg = excluded.price_per_kg,
+                     rarity = excluded.rarity,
+                     minimum_similarity = excluded.minimum_similarity,
                      min_length_cm = excluded.min_length_cm,
                      max_length_cm = excluded.max_length_cm,
                      min_weight_kg = excluded.min_weight_kg,
@@ -254,6 +280,8 @@ impl SqliteStore {
                     fish.id,
                     fish.name,
                     fish.price_per_kg,
+                    rarity.storage_name(),
+                    rarity.minimum_similarity(),
                     fish.min_length_cm,
                     fish.max_length_cm,
                     fish.min_weight_kg,
@@ -367,6 +395,11 @@ impl SqliteStore {
             "INSERT OR IGNORE INTO player_state
                  (id, body_weight_kg, money, eaten_count, sold_count, updated_at)
              VALUES (1, 60, 0, 0, 0, '1970-01-01T00:00:00Z')",
+            [],
+        )?;
+        connection.execute(
+            "INSERT OR IGNORE INTO skin_unlocks (skin_id, unlock_source, unlocked_at)
+             VALUES ('orange', 'default', '1970-01-01T00:00:00Z')",
             [],
         )?;
         connection.execute(
@@ -651,7 +684,7 @@ impl SqliteStore {
     pub fn load_fish_records(&self) -> rusqlite::Result<Vec<FishRecord>> {
         let connection = self.connection.lock().expect("sqlite connection poisoned");
         let mut statement = connection.prepare(
-            "SELECT f.id, f.name, f.price_per_kg,
+            "SELECT f.id, f.name, f.price_per_kg, f.rarity,
                     COUNT(r.round_number), MAX(r.length_cm), MAX(r.weight_kg),
                     (
                         SELECT recent.description
@@ -665,7 +698,7 @@ impl SqliteStore {
              LEFT JOIN round_results r
                ON r.fish_species_id = f.id AND r.result_type = 'caught'
              WHERE f.enabled = 1
-             GROUP BY f.id, f.name, f.price_per_kg
+             GROUP BY f.id, f.name, f.price_per_kg, f.rarity
              ORDER BY f.id",
         )?;
         statement
@@ -674,10 +707,11 @@ impl SqliteStore {
                     fish_id: row.get(0)?,
                     name: row.get(1)?,
                     price_per_kg: row.get(2)?,
-                    caught_count: row.get::<_, i64>(3)?.max(0) as u64,
-                    max_length_cm: row.get(4)?,
-                    max_weight_kg: row.get(5)?,
-                    latest_description: row.get(6)?,
+                    rarity: FishRarity::from_storage(&row.get::<_, String>(3)?),
+                    caught_count: row.get::<_, i64>(4)?.max(0) as u64,
+                    max_length_cm: row.get(5)?,
+                    max_weight_kg: row.get(6)?,
+                    latest_description: row.get(7)?,
                 })
             })?
             .collect()
@@ -719,7 +753,7 @@ impl SqliteStore {
     pub fn load_fish_profiles(&self, local_date: &str) -> rusqlite::Result<Vec<FishProfile>> {
         let connection = self.connection.lock().expect("sqlite connection poisoned");
         let mut statement = connection.prepare(
-            "SELECT f.id, f.name, f.price_per_kg,
+            "SELECT f.id, f.name, f.price_per_kg, f.rarity, f.minimum_similarity,
                     f.min_length_cm, f.max_length_cm,
                     f.min_weight_kg, f.max_weight_kg,
                     p.intensity, p.color, p.sweet, p.sour, p.salty
@@ -734,16 +768,18 @@ impl SqliteStore {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     price_per_kg: row.get(2)?,
-                    min_length_cm: row.get(3)?,
-                    max_length_cm: row.get(4)?,
-                    min_weight_kg: row.get(5)?,
-                    max_weight_kg: row.get(6)?,
+                    rarity: FishRarity::from_storage(&row.get::<_, String>(3)?),
+                    minimum_similarity: row.get(4)?,
+                    min_length_cm: row.get(5)?,
+                    max_length_cm: row.get(6)?,
+                    min_weight_kg: row.get(7)?,
+                    max_weight_kg: row.get(8)?,
                     preference: FlavorVector {
-                        intensity: row.get(7)?,
-                        color: row.get(8)?,
-                        sweet: row.get(9)?,
-                        sour: row.get(10)?,
-                        salty: row.get(11)?,
+                        intensity: row.get(9)?,
+                        color: row.get(10)?,
+                        sweet: row.get(11)?,
+                        sour: row.get(12)?,
+                        salty: row.get(13)?,
                     },
                 })
             })?
@@ -856,6 +892,98 @@ impl SqliteStore {
         )
     }
 
+    pub fn load_owned_skin_ids(&self) -> rusqlite::Result<Vec<String>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement =
+            connection.prepare("SELECT skin_id FROM skin_unlocks ORDER BY unlocked_at, skin_id")?;
+        statement
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+    }
+
+    pub fn is_skin_owned(&self, skin_id: &str) -> rusqlite::Result<bool> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection
+            .query_row(
+                "SELECT 1 FROM skin_unlocks WHERE skin_id = ?1",
+                [skin_id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map(|value| value.is_some())
+    }
+
+    pub fn purchase_skin(
+        &self,
+        skin_id: &str,
+        price: f64,
+        unlocked_at: &str,
+    ) -> rusqlite::Result<()> {
+        let mut connection = self.connection.lock().expect("sqlite connection poisoned");
+        let transaction = connection.transaction()?;
+        let already_owned = transaction
+            .query_row(
+                "SELECT 1 FROM skin_unlocks WHERE skin_id = ?1",
+                [skin_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if already_owned {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        let changed = transaction.execute(
+            "UPDATE player_state
+             SET money = money - ?1, updated_at = ?2
+             WHERE id = 1 AND money >= ?1",
+            params![price.max(0.0), unlocked_at],
+        )?;
+        if changed != 1 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        transaction.execute(
+            "INSERT INTO skin_unlocks (skin_id, unlock_source, unlocked_at)
+             VALUES (?1, 'shop', ?2)",
+            params![skin_id, unlocked_at],
+        )?;
+        transaction.commit()
+    }
+
+    pub fn claim_weight_skin(
+        &self,
+        skin_id: &str,
+        required_weight_kg: f64,
+        unlocked_at: &str,
+    ) -> rusqlite::Result<()> {
+        let mut connection = self.connection.lock().expect("sqlite connection poisoned");
+        let transaction = connection.transaction()?;
+        let already_owned = transaction
+            .query_row(
+                "SELECT 1 FROM skin_unlocks WHERE skin_id = ?1",
+                [skin_id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if already_owned {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        let eligible = transaction.query_row(
+            "SELECT body_weight_kg >= ?1 FROM player_state WHERE id = 1",
+            [required_weight_kg.max(0.0)],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !eligible {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        transaction.execute(
+            "INSERT INTO skin_unlocks (skin_id, unlock_source, unlocked_at)
+             VALUES (?1, 'achievement', ?2)",
+            params![skin_id, unlocked_at],
+        )?;
+        transaction.commit()
+    }
+
     pub fn load_fishing_log(&self, limit: u32) -> rusqlite::Result<Vec<FishingLogEntry>> {
         let connection = self.connection.lock().expect("sqlite connection poisoned");
         let mut statement = connection.prepare(
@@ -863,7 +991,8 @@ impl SqliteStore {
                     r.planned_duration_seconds, r.waiting_events_json, r.bait_name,
                     r.result_type, r.fish_species_id, f.name, r.length_cm,
                     r.weight_kg, r.value, r.description, r.disposition,
-                    r.disposition_at, r.gained_weight_kg, r.gained_money
+                    r.disposition_at, r.gained_weight_kg, r.gained_money,
+                    f.rarity
              FROM round_results r
              LEFT JOIN fish_species f ON f.id = r.fish_species_id
              ORDER BY r.round_number DESC
@@ -882,6 +1011,52 @@ impl SqliteStore {
                     result_type: row.get(6)?,
                     fish_id: row.get(7)?,
                     fish_name: row.get(8)?,
+                    fish_rarity: row
+                        .get::<_, Option<String>>(17)?
+                        .map(|value| FishRarity::from_storage(&value)),
+                    length_cm: row.get(9)?,
+                    weight_kg: row.get(10)?,
+                    value: row.get(11)?,
+                    description: row.get(12)?,
+                    disposition: row.get(13)?,
+                    disposition_at: row.get(14)?,
+                    gained_weight_kg: row.get(15)?,
+                    gained_money: row.get(16)?,
+                })
+            })?
+            .collect()
+    }
+
+    pub fn load_pending_catches(&self) -> rusqlite::Result<Vec<FishingLogEntry>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT r.round_number, r.round_started_at, r.settled_at,
+                    r.planned_duration_seconds, r.waiting_events_json, r.bait_name,
+                    r.result_type, r.fish_species_id, f.name, r.length_cm,
+                    r.weight_kg, r.value, r.description, r.disposition,
+                    r.disposition_at, r.gained_weight_kg, r.gained_money,
+                    f.rarity
+             FROM round_results r
+             LEFT JOIN fish_species f ON f.id = r.fish_species_id
+             WHERE r.result_type = 'caught' AND r.disposition = 'pending'
+             ORDER BY r.round_number DESC",
+        )?;
+        statement
+            .query_map([], |row| {
+                let waiting_events_json: String = row.get(4)?;
+                Ok(FishingLogEntry {
+                    round_number: row.get::<_, i64>(0)?.max(0) as u64,
+                    round_started_at: row.get(1)?,
+                    settled_at: row.get(2)?,
+                    planned_duration_seconds: row.get::<_, i64>(3)?.max(0) as u64,
+                    waiting_events: serde_json::from_str(&waiting_events_json).unwrap_or_default(),
+                    bait_name: row.get(5)?,
+                    result_type: row.get(6)?,
+                    fish_id: row.get(7)?,
+                    fish_name: row.get(8)?,
+                    fish_rarity: row
+                        .get::<_, Option<String>>(17)?
+                        .map(|value| FishRarity::from_storage(&value)),
                     length_cm: row.get(9)?,
                     weight_kg: row.get(10)?,
                     value: row.get(11)?,
@@ -1191,6 +1366,7 @@ mod tests {
         let caught = RoundOutcome::Caught {
             fish_id: 1,
             fish_name: "鲤鱼".to_owned(),
+            rarity: FishRarity::Common,
             length_cm: 28.4,
             weight_kg: 0.62,
             value: 7.44,
@@ -1211,6 +1387,8 @@ mod tests {
             .expect("save caught outcome");
         let records = store.load_fish_records().expect("load fish records");
         assert_eq!(records.len(), 30);
+        assert_eq!(records[0].rarity, FishRarity::Common);
+        assert_eq!(records[23].rarity, FishRarity::Legendary);
         assert_eq!(records[0].caught_count, 1);
         assert_eq!(records[0].max_length_cm, Some(28.4));
         assert_eq!(records[0].max_weight_kg, Some(0.62));
@@ -1225,11 +1403,21 @@ mod tests {
         let pending = store.load_player_summary().expect("load player summary");
         assert_eq!(pending.body_weight_kg, 60.0);
         assert_eq!(pending.pending_catches, 1);
+        let pending_catches = store.load_pending_catches().expect("load pending catches");
+        assert_eq!(pending_catches.len(), 1);
+        assert_eq!(pending_catches[0].round_number, 1);
+        assert_eq!(pending_catches[0].fish_name.as_deref(), Some("鲤鱼"));
         let after_eating = store
             .handle_catch(1, "eat", 0.5, "2026-08-18T08:01:00Z")
             .expect("eat caught fish");
         assert_eq!(after_eating.pending_catches, 0);
         assert_eq!(after_eating.eaten_count, 1);
+        assert!(
+            store
+                .load_pending_catches()
+                .expect("reload pending catches")
+                .is_empty()
+        );
         assert!((after_eating.body_weight_kg - 60.31).abs() < 0.000_001);
         assert!(
             store
@@ -1249,6 +1437,13 @@ mod tests {
                 &caught,
             )
             .expect("save second catch");
+        assert_eq!(
+            store
+                .load_pending_catches()
+                .expect("load second pending catch")[0]
+                .round_number,
+            2
+        );
         let after_selling = store
             .handle_catch(2, "sell", 0.0, "2026-08-18T08:21:00Z")
             .expect("sell caught fish");
@@ -1283,5 +1478,64 @@ mod tests {
             store.load_app_settings().expect("reload settings"),
             expected
         );
+    }
+
+    #[test]
+    fn skin_unlocks_charge_coins_and_keep_achievement_weight() {
+        let store = SqliteStore::open(Path::new(":memory:")).expect("open in-memory database");
+        let defaults = store.load_owned_skin_ids().expect("load default skins");
+        assert_eq!(defaults, vec!["orange"]);
+        assert!(defaults.iter().any(|skin| skin == "orange"));
+
+        store
+            .connection
+            .lock()
+            .expect("sqlite connection")
+            .execute(
+                "UPDATE player_state SET money = 60000, body_weight_kg = 999 WHERE id = 1",
+                [],
+            )
+            .expect("seed player balance");
+        store
+            .purchase_skin("silver_tabby", 30_000.0, "2026-08-24T08:00:00Z")
+            .expect("purchase paid skin");
+        assert_eq!(
+            store.load_player_summary().expect("load player").money,
+            30_000.0
+        );
+        assert!(
+            store
+                .is_skin_owned("silver_tabby")
+                .expect("check purchased skin")
+        );
+        assert!(
+            store
+                .purchase_skin("silver_tabby", 30_000.0, "2026-08-24T08:01:00Z")
+                .is_err()
+        );
+        assert!(
+            store
+                .claim_weight_skin("bengal", 1_000.0, "2026-08-24T08:02:00Z")
+                .is_err()
+        );
+
+        store
+            .connection
+            .lock()
+            .expect("sqlite connection")
+            .execute(
+                "UPDATE player_state SET body_weight_kg = 1000 WHERE id = 1",
+                [],
+            )
+            .expect("reach achievement weight");
+        store
+            .claim_weight_skin("bengal", 1_000.0, "2026-08-24T08:03:00Z")
+            .expect("claim achievement skin");
+        let player = store
+            .load_player_summary()
+            .expect("load player after claim");
+        assert_eq!(player.body_weight_kg, 1_000.0);
+        assert_eq!(player.money, 30_000.0);
+        assert!(store.is_skin_owned("bengal").expect("check reward skin"));
     }
 }
