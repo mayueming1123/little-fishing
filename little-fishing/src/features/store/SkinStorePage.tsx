@@ -8,7 +8,7 @@ const REQUIRED_WEIGHT_KG = 1_000;
 type StoreItem = {
   skinId: BobberSkinId;
   description: string;
-  unlock: "free" | "shop" | "achievement";
+  unlock: "free" | "shop" | "achievement" | "mystery";
   price?: number;
 };
 
@@ -21,6 +21,11 @@ const skinStoreItems: StoreItem[] = [
   { skinId: "tuxedo", description: "穿着黑白小礼服，等鱼时也很体面。", unlock: "shop", price: 30_000 },
   { skinId: "ragdoll", description: "软乎乎的浅色长毛猫，适合慢慢守一竿。", unlock: "shop", price: 30_000 },
   { skinId: "bengal", description: "带着野性斑纹，只奖励给真正吃得下鱼的钓友。", unlock: "achievement" },
+  { skinId: "treasure_pearl", description: "通过某种特殊成就获得。", unlock: "mystery" },
+  { skinId: "treasure_crystal_shoe", description: "通过某种特殊成就获得。", unlock: "mystery" },
+  { skinId: "treasure_seal", description: "通过某种特殊成就获得。", unlock: "mystery" },
+  { skinId: "treasure_wood_sword", description: "通过某种特殊成就获得。", unlock: "mystery" },
+  { skinId: "treasure_martial_manual", description: "通过某种特殊成就获得。", unlock: "mystery" },
 ];
 
 function errorMessage(error: unknown): string {
@@ -41,7 +46,7 @@ export function SkinStorePage() {
   }, []);
 
   async function unlock(skinId: BobberSkinId, unlockType: StoreItem["unlock"]) {
-    if (unlockType === "free") return;
+    if (unlockType === "free" || unlockType === "mystery") return;
     setBusySkinId(skinId);
     setMessage(null);
     try {
@@ -61,7 +66,7 @@ export function SkinStorePage() {
   return <section className="section-page">
     <div className="section-intro">
       <div><h2>猫咪皮肤商店</h2><p>卖鱼得到的金币可以换外观；皮肤只改变桌面浮标，不会影响钓鱼概率。</p></div>
-      <span>{store ? `已拥有 ${store.ownedSkinIds.length} / 8` : "正在清点"}</span>
+      <span>{store ? `已拥有 ${store.ownedSkinIds.length} / 13` : "正在清点"}</span>
     </div>
 
     <div className="store-balance" aria-label="商店账户">
@@ -74,10 +79,11 @@ export function SkinStorePage() {
       {skinStoreItems.map((item) => {
         const skin = getBobberSkin(item.skinId);
         const owned = store?.ownedSkinIds.includes(item.skinId) ?? false;
+        const mysteryLocked = item.unlock === "mystery" && !owned;
         const price = item.price ?? 0;
         const eligible = item.unlock === "free" ? true : item.unlock === "shop"
           ? (store?.money ?? 0) >= price
-          : (store?.bodyWeightKg ?? 0) >= REQUIRED_WEIGHT_KG;
+          : item.unlock === "achievement" ? (store?.bodyWeightKg ?? 0) >= REQUIRED_WEIGHT_KG : false;
         const waiting = busySkinId === item.skinId;
         const buttonText = owned ? "已经拥有"
           : waiting ? "正在处理…"
@@ -85,19 +91,20 @@ export function SkinStorePage() {
             : item.unlock === "shop" ? eligible
               ? `购买 · ${price.toLocaleString("zh-CN")} 金币`
               : `还差 ${(price - (store?.money ?? 0)).toLocaleString("zh-CN", { maximumFractionDigits: 0 })} 金币`
-              : eligible ? "领取成就奖励" : `还差 ${(REQUIRED_WEIGHT_KG - (store?.bodyWeightKg ?? 0)).toFixed(1)} kg`;
-        return <article className={`store-card ${owned ? "owned" : ""}`} key={item.skinId}>
+              : item.unlock === "achievement" ? eligible ? "领取成就奖励" : `还差 ${(REQUIRED_WEIGHT_KG - (store?.bodyWeightKg ?? 0)).toFixed(1)} kg`
+              : "通过某种特殊成就获得";
+        return <article className={`store-card ${owned ? "owned" : ""} ${mysteryLocked ? "mystery-locked" : ""}`} key={item.skinId}>
           <div className="store-skin-stage">
             <img
               src={skin.image}
-              alt={`${skin.label}钓鱼猫皮肤`}
+              alt={mysteryLocked ? "未解锁成就皮肤剪影" : `${skin.label}钓鱼猫皮肤`}
               draggable={false}
               style={{ "--skin-preview-inset": `${skin.inset}%` } as CSSProperties}
             />
             {owned && <span className="owned-mark">已拥有</span>}
           </div>
           <div className="store-card-copy">
-            <header><div><h3>{skin.label}</h3><p>{item.description}</p></div><em>{item.unlock === "free" ? "免费皮肤" : item.unlock === "shop" ? "商店皮肤" : "体重成就"}</em></header>
+            <header><div><h3>{mysteryLocked ? "？？？" : skin.label}</h3><p>{item.description}</p></div><em>{item.unlock === "free" ? "免费皮肤" : item.unlock === "shop" ? "商店皮肤" : item.unlock === "achievement" ? "体重成就" : "特殊成就"}</em></header>
             {item.unlock === "achievement" && <div className="store-progress-block">
               <div><span>体重进度</span><strong>{Math.min(store?.bodyWeightKg ?? 0, REQUIRED_WEIGHT_KG).toFixed(1)} / {REQUIRED_WEIGHT_KG} kg</strong></div>
               <i><b style={{ width: `${weightProgress}%` }} /></i>
@@ -105,6 +112,7 @@ export function SkinStorePage() {
             </div>}
             {item.unlock === "free" && <p className="store-price"><strong>免费</strong></p>}
             {item.unlock === "shop" && <p className="store-price"><strong>{price.toLocaleString("zh-CN")}</strong> 金币</p>}
+            {item.unlock === "mystery" && <p className="store-price mystery"><strong>隐藏奖励</strong></p>}
             <button
               type="button"
               className="primary-button"

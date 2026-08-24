@@ -52,4 +52,13 @@ describe("SkinStorePage", () => {
     await waitFor(() => expect(claimWeightSkin).toHaveBeenCalledWith("bengal"));
     expect(await screen.findByText(/体重不会被扣除/)).toBeTruthy();
   });
+
+  it("hides mystery achievement skins until their matching discovery", async () => {
+    render(<SkinStorePage />);
+
+    await waitFor(() => expect(screen.getAllByText("通过某种特殊成就获得。")).toHaveLength(5));
+    expect(screen.getAllByText("？？？")).toHaveLength(5);
+    expect(screen.getAllByAltText("未解锁成就皮肤剪影")).toHaveLength(5);
+    expect(screen.getAllByRole("button", { name: "通过某种特殊成就获得" })).toHaveLength(5);
+  });
 });

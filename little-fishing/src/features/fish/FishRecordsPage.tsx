@@ -46,7 +46,7 @@ export function FishRecordsPage() {
     </article>)}</div>}
 
     <div className="treasure-section-head">
-      <div><h2>隐藏传说</h2><p>极少数空军会从水下带回别的东西。发现以前，名字、图案和来历都不会公开。</p></div>
+      <div><h2>神秘奇遇</h2><p>谁不想在钓鱼的时候遇到些有趣的东西。</p></div>
       <span>已发现 {treasures.filter((treasure) => treasure.discovered).length} / {treasures.length}</span>
     </div>
     <div className="treasure-grid">{treasures.map((treasure) => <article className={`treasure-card ${treasure.discovered ? "discovered" : "locked"}`} key={treasure.treasureId}>

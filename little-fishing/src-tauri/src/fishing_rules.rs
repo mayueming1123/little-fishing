@@ -319,7 +319,7 @@ impl RoundOutcome {
                 treasure_name,
                 description,
                 ..
-            } => format!("没有钓到鱼，却发现了隐藏传说「{treasure_name}」。{description}"),
+            } => format!("没有钓到鱼，却遇到了神秘奇遇「{treasure_name}」。{description}"),
         }
     }
 }

@@ -49,7 +49,19 @@ fn shop_skin_price(value: &str) -> Option<f64> {
 fn is_known_skin_id(value: &str) -> bool {
     matches!(
         value,
-        "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal"
+        "orange"
+            | "gray"
+            | "calico"
+            | "siamese"
+            | "silver_tabby"
+            | "tuxedo"
+            | "ragdoll"
+            | "bengal"
+            | "treasure_pearl"
+            | "treasure_crystal_shoe"
+            | "treasure_seal"
+            | "treasure_wood_sword"
+            | "treasure_martial_manual"
     )
 }
 
@@ -1465,6 +1477,9 @@ mod tests {
         assert_eq!(shop_skin_price("silver_tabby"), Some(30_000.0));
         assert_eq!(shop_skin_price("orange"), None);
         assert_eq!(shop_skin_price("bengal"), None);
+        assert_eq!(shop_skin_price("treasure_pearl"), None);
+        assert!(is_known_skin_id("treasure_pearl"));
+        assert!(is_known_skin_id("treasure_martial_manual"));
     }
 
     #[test]

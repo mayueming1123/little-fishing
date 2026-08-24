@@ -9,6 +9,20 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use std::{path::Path, sync::Mutex};
 
+const TREASURE_SKIN_REWARDS: [(i64, &str); 5] = [
+    (1, "treasure_pearl"),
+    (2, "treasure_crystal_shoe"),
+    (3, "treasure_seal"),
+    (4, "treasure_wood_sword"),
+    (5, "treasure_martial_manual"),
+];
+
+fn treasure_reward_skin_id(treasure_id: i64) -> Option<&'static str> {
+    TREASURE_SKIN_REWARDS
+        .iter()
+        .find_map(|(id, skin_id)| (*id == treasure_id).then_some(*skin_id))
+}
+
 #[derive(Debug)]
 pub struct PersistedRoundState {
     pub phase: String,
@@ -425,6 +439,15 @@ impl SqliteStore {
              VALUES ('orange', 'default', '1970-01-01T00:00:00Z')",
             [],
         )?;
+        for (treasure_id, skin_id) in TREASURE_SKIN_REWARDS {
+            connection.execute(
+                "INSERT OR IGNORE INTO skin_unlocks (skin_id, unlock_source, unlocked_at)
+                 SELECT ?2, 'mystery_achievement', discovered_at
+                 FROM treasure_discoveries
+                 WHERE treasure_id = ?1",
+                params![treasure_id, skin_id],
+            )?;
+        }
         connection.execute(
             "INSERT OR IGNORE INTO app_settings (
                  id, notifications_enabled, bobber_visible,
@@ -764,7 +787,7 @@ impl SqliteStore {
                     description: if discovered {
                         row.get(2)?
                     } else {
-                        "尚未发现。它仍藏在某一次空军之后。".to_owned()
+                        "尚未发现".to_owned()
                     },
                     found_count: if discovered {
                         row.get::<_, i64>(4)?.max(0) as u64
@@ -947,6 +970,13 @@ impl SqliteStore {
                      found_count = treasure_discoveries.found_count + 1",
                 params![treasure_id, settled_at],
             )?;
+            if let Some(skin_id) = treasure_reward_skin_id(*treasure_id) {
+                transaction.execute(
+                    "INSERT OR IGNORE INTO skin_unlocks (skin_id, unlock_source, unlocked_at)
+                     VALUES (?1, 'mystery_achievement', ?2)",
+                    params![skin_id, settled_at],
+                )?;
+            }
         }
         transaction.commit()
     }
@@ -1578,6 +1608,9 @@ mod tests {
         assert_eq!(log[0].result_type, "treasure");
         assert_eq!(log[0].disposition, "not_applicable");
         assert_eq!(store.load_player_summary().unwrap().pending_catches, 0);
+        let owned_skins = store.load_owned_skin_ids().expect("load treasure reward skin");
+        assert!(owned_skins.iter().any(|skin| skin == "treasure_pearl"));
+        assert!(!owned_skins.iter().any(|skin| skin == "treasure_crystal_shoe"));
     }
 
     #[test]

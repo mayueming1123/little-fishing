@@ -333,11 +333,14 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
   background: rgba(251,253,249,.88); box-shadow: 0 8px 28px rgba(31,66,65,.055);
 }
 .store-card.owned { border-color: #8fbcb0; }
+.store-card.mystery-locked { border-color: #c7cdca; }
 .store-skin-stage { position: relative; display: grid; place-items: center; min-width: 0; overflow: hidden; background: linear-gradient(155deg, #f2f7e8, #e3f4ef); }
 .store-skin-stage img {
   width: 100%; height: 100%; box-sizing: border-box; padding: var(--skin-preview-inset, 0);
   object-fit: contain; pointer-events: none; filter: drop-shadow(0 6px 5px rgba(24,61,63,.15));
 }
+.store-card.mystery-locked .store-skin-stage img { filter: brightness(0); }
+.store-card.mystery-locked .store-skin-stage { background: linear-gradient(155deg, #edf0ee, #dfe5e2); }
 .owned-mark { position: absolute; top: 10px; left: 10px; padding: 5px 8px; border-radius: 999px; color: white; background: rgba(48,112,102,.9); font-size: 9px; }
 .store-card-copy { display: flex; flex-direction: column; min-width: 0; padding: 17px; }
 .store-card-copy header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
@@ -346,6 +349,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .store-card-copy header em { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; color: #705629; background: #fff0c4; font-size: 9px; font-style: normal; }
 .store-price { margin: auto 0 11px; color: var(--muted); font-size: 11px; }
 .store-price strong { color: #805e20; font-size: 20px; font-variant-numeric: tabular-nums; }
+.store-price.mystery strong { color: #5f6966; font-size: 14px; }
 .store-card-copy > .primary-button { width: 100%; padding: 9px 12px; }
 .store-progress-block { margin: auto 0 11px; }
 .store-progress-block > div { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }

@@ -3,11 +3,12 @@ import type { BobberSkinId } from "../../domain/prototype";
 import { bobberSkins, getBobberSkin } from "./skins";
 
 describe("bobber skins", () => {
-  it("defines eight selectable skins with calibrated float positions", () => {
+  it("defines thirteen selectable skins with calibrated float positions", () => {
     expect(bobberSkins.map((skin) => skin.value)).toEqual([
       "orange", "gray", "calico", "siamese", "silver_tabby", "tuxedo", "ragdoll", "bengal",
+      "treasure_pearl", "treasure_crystal_shoe", "treasure_seal", "treasure_wood_sword", "treasure_martial_manual",
     ]);
-    expect(new Set(bobberSkins.map((skin) => skin.image)).size).toBe(8);
+    expect(new Set(bobberSkins.map((skin) => skin.image)).size).toBe(13);
     for (const skin of bobberSkins) {
       expect(skin.floatX).toBeGreaterThan(0);
       expect(skin.floatX).toBeLessThan(100);

@@ -15,7 +15,7 @@ const records: FishRecord[] = [
 ];
 
 const treasures: TreasureRecord[] = [
-  { treasureId: 1, discovered: false, name: "？？？", description: "尚未发现。它仍藏在某一次空军之后。", foundCount: 0 },
+  { treasureId: 1, discovered: false, name: "？？？", description: "尚未发现", foundCount: 0 },
   { treasureId: 2, discovered: true, name: "水晶鞋", description: "晶莹的旧鞋。", foundCount: 1 },
 ];
 
@@ -36,7 +36,7 @@ describe("FishRecordsPage", () => {
     expect(screen.getByText("鲫鱼")).toBeTruthy();
     expect(screen.getByText("少见")).toBeTruthy();
     expect(screen.getByText("显示 1 / 2 种")).toBeTruthy();
-    expect(screen.getByText("隐藏传说")).toBeTruthy();
+    expect(screen.getByText("神秘奇遇")).toBeTruthy();
     expect(screen.getByText("水晶鞋")).toBeTruthy();
     expect(screen.getByText("？？？")).toBeTruthy();
   });

@@ -135,7 +135,7 @@ export interface BobberToastPayload {
 }
 
 export type AppTheme = "system" | "light" | "dark";
-export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal";
+export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal" | "treasure_pearl" | "treasure_crystal_shoe" | "treasure_seal" | "treasure_wood_sword" | "treasure_martial_manual";
 
 export interface SkinStoreState {
   money: number;

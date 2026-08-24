@@ -65,7 +65,7 @@ export function FishingLogPage({ revision }: { revision: number }) {
       const treasure = entry.resultType === "treasure";
       const pending = caught && entry.disposition === "pending";
       return <article className={`fishing-log-card ${pending ? "pending-catch" : ""} ${treasure ? "treasure-found" : ""}`} key={entry.roundNumber}>
-        <header><div><strong>第 {entry.roundNumber} 竿</strong><span>{formatDateTime(entry.settledAt)} · {entry.baitName}</span></div><em className={caught ? "caught" : treasure ? "treasure" : "missed"}>{caught ? "中鱼" : treasure ? "隐藏传说" : "空军"}</em></header>
+        <header><div><strong>第 {entry.roundNumber} 竿</strong><span>{formatDateTime(entry.settledAt)} · {entry.baitName}</span></div><em className={caught ? "caught" : treasure ? "treasure" : "missed"}>{caught ? "中鱼" : treasure ? "神秘奇遇" : "空军"}</em></header>
         <div className="round-meta"><span>等待 {formatPlannedDuration(entry.plannedDurationSeconds)}</span><span>{entry.waitingEvents.length} 次过程动静</span></div>
         {entry.waitingEvents.length > 0 && <details className="event-timeline"><summary>展开本竿过程</summary><ol>{entry.waitingEvents.map((event) => <li key={event.id}><time>{formatDateTime(event.scheduledAt)}</time><span>{event.description}</span></li>)}</ol></details>}
         {caught ? <div className="caught-result">
