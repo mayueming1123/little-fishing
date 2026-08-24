@@ -177,6 +177,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 }
 .fish-card-head { display: flex; align-items: center; gap: 14px; }
 .pixel-fish { flex: 0 0 auto; width: 64px; height: 40px; image-rendering: pixelated; }
+.special-fish-icon { object-fit: contain; }
 .fish-title-line { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 .fish-card-head h3 { margin: 0; color: #2d5557; font-size: 17px; }
 .fish-card-head p { margin: 4px 0 0; color: #8a6b32; font-size: 12px; }
@@ -186,6 +187,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .rarity-rare { color: #276a9a; border-color: #acd0e8; background: #e5f2fb; }
 .rarity-epic { color: #70509a; border-color: #d1bde6; background: #f1eafa; }
 .rarity-legendary { color: #9a4b22; border-color: #e5b367; background: linear-gradient(135deg, #fff2c7, #ffe0b8); box-shadow: 0 0 0 2px rgba(220,164,78,.10); }
+.rarity-special { color: #8a3c49; border-color: #ef9b8d; background: linear-gradient(135deg, #fff0c7, #ffd6d3 55%, #d9f5ef); box-shadow: 0 0 0 2px rgba(224,118,101,.10); }
 .fish-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
 .fish-stats div { min-width: 0; padding: 9px; border-radius: 10px; background: var(--paper-soft); }
 .fish-stats span { display: block; color: var(--muted); font-size: 10px; }
@@ -425,26 +427,27 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .bobber-button.stopped .bobber-cat-scene, .bobber-button.stopped .bobber-float-layer { opacity: .72; filter: saturate(.72); }
 .bobber-status-mark { position: absolute; z-index: 2; right: 3px; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: #6e9a91; border: 2px solid #eef5f2; box-shadow: 0 2px 6px rgba(28,68,68,.22); }
 
-.bobber-toast-stage { width: 100%; height: 100vh; padding: 9px; background: transparent; }
+.bobber-toast-stage { width: 100%; height: 100vh; padding: 7px; background: transparent; }
 .bobber-toast-card {
-  position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: 48px 1fr;
-  align-items: center; gap: 12px; padding: 13px 16px; overflow: hidden; text-align: left;
-  border: 1px solid rgba(53,94,91,.24); border-radius: 18px; color: var(--ink);
-  background: rgba(251,253,249,.97); box-shadow: 0 13px 34px rgba(24,57,55,.22);
+  position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: 28px minmax(0,1fr);
+  align-items: center; gap: 8px; padding: 9px 13px; overflow: visible; text-align: left;
+  border: 1px solid rgba(43,112,109,.28); border-radius: 22px; color: var(--ink);
+  background: rgba(231,249,244,.97); box-shadow: 0 9px 24px rgba(24,57,55,.22);
   animation: toast-arrive .24s ease-out both;
 }
+.bobber-toast-card.catch { border-color: rgba(203,116,49,.34); background: rgba(255,239,199,.98); box-shadow: 0 9px 24px rgba(121,72,27,.22); }
+.bobber-toast-card::after { content: ""; position: absolute; bottom: -6px; width: 15px; height: 15px; border: inherit; border-left: 0; border-top: 0; background: inherit; transform: rotate(45deg); }
+.bobber-toast-card.event::after { right: 17px; }
+.bobber-toast-card.catch::after { left: 17px; }
 .bobber-toast-card:disabled { cursor: default; opacity: 0; }
-.toast-water { position: relative; width: 46px; height: 46px; display: block; }
-.toast-water::after { content: ""; position: absolute; left: 21px; top: 7px; width: 4px; height: 29px; border-radius: 3px; background: linear-gradient(#e6bc5d 0 28%, #d86450 29% 66%, #fff5df 67%); box-shadow: 0 2px 0 #31585a; }
-.toast-water i { position: absolute; left: 50%; top: 50%; border: 1px solid rgba(48,119,122,.42); border-radius: 50%; transform: translate(-50%,-50%); }
-.toast-water i:nth-child(1) { width: 22px; height: 8px; }
-.toast-water i:nth-child(2) { width: 34px; height: 14px; }
-.toast-water i:nth-child(3) { width: 46px; height: 21px; }
+.toast-symbol { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: #fff; background: #4b9d91; font-size: 13px; font-weight: 800; }
+.bobber-toast-card.catch .toast-symbol { color: #7a411f; background: #f4bb57; }
 .toast-copy { min-width: 0; display: block; }
-.toast-copy strong, .toast-copy span, .toast-copy small { display: block; }
-.toast-copy strong { color: #285356; font-size: 13px; }
-.toast-copy span { margin-top: 4px; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-.toast-copy small { margin-top: 6px; color: #78908e; font-size: 9px; }
+.toast-copy strong, .toast-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast-copy strong { padding-right: 24px; color: #285356; font-size: 11px; }
+.bobber-toast-card.catch .toast-copy strong { color: #7a411f; }
+.toast-copy span { margin-top: 2px; color: #58716e; font-size: 10px; line-height: 1.35; }
+.toast-count { position: absolute; z-index: 2; right: -3px; top: -5px; display: grid; min-width: 24px; height: 24px; padding: 0 6px; place-items: center; border: 2px solid #f8fffc; border-radius: 999px; color: #fff; background: #d86658; box-shadow: 0 3px 9px rgba(88,45,40,.22); font-size: 10px; font-weight: 800; }
 
 .compact-panel { width: 100%; height: 100vh; padding: 10px; background: transparent; }
 .panel-paper { height: calc(100vh - 20px); padding: 14px 16px; border: 1px solid rgba(56,91,87,.2); border-radius: 16px; background: rgba(251,253,249,.97); box-shadow: 0 15px 40px rgba(25,55,53,.2); }
@@ -490,6 +493,8 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
   :root:not([data-theme="light"]) .record-filter button.active { background: var(--lake); color: white; }
   :root:not([data-theme="light"]) .theme-options button.active { background: var(--lake); color: white; }
   :root:not([data-theme="light"]) .skin-option.active { border-color: #67aaa5; background: #294b4b; color: white; }
+  :root:not([data-theme="light"]) .bobber-toast-card.event { background: rgba(27,64,62,.98); }
+  :root:not([data-theme="light"]) .bobber-toast-card.catch { background: rgba(78,58,31,.98); }
 }
 
 :root[data-theme="dark"] { color: #dbeae5; background: #172527; --ink: #dbeae5; --muted: #9fb1ad; --paper: #1e3031; --paper-soft: #223638; --line: #354b4b; --lake-soft: #254647; }
@@ -502,3 +507,5 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 :root[data-theme="dark"] .record-filter button.active { background: var(--lake); color: white; }
 :root[data-theme="dark"] .theme-options button.active { background: var(--lake); color: white; }
 :root[data-theme="dark"] .skin-option.active { border-color: #67aaa5; background: #294b4b; color: white; }
+:root[data-theme="dark"] .bobber-toast-card.event { background: rgba(27,64,62,.98); }
+:root[data-theme="dark"] .bobber-toast-card.catch { background: rgba(78,58,31,.98); }

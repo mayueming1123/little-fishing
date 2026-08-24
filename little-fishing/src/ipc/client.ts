@@ -98,7 +98,7 @@ export async function purchaseSkin(skinId: BobberSkinId): Promise<SkinStoreState
   if (isTauriRuntime()) return invoke<SkinStoreState>("purchase_skin", { skinId });
   const price = skinId === "gray" ? 5_000
     : skinId === "calico" ? 10_000
-      : skinId === "siamese" ? 20_000
+      : ["siamese", "samoyed", "golden_retriever"].includes(skinId) ? 20_000
         : ["silver_tabby", "tuxedo", "ragdoll"].includes(skinId) ? 30_000
           : null;
   if (price === null) throw new Error("这款皮肤不是商店售卖项目");

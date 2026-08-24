@@ -11,6 +11,8 @@ import treasureCrystalShoeCatFishing from "../../assets/cat-skin-treasure-crysta
 import treasureSealCatFishing from "../../assets/cat-skin-treasure-seal.png";
 import treasureWoodSwordCatFishing from "../../assets/cat-skin-treasure-wood-sword.png";
 import treasureMartialManualCatFishing from "../../assets/cat-skin-treasure-martial-manual.png";
+import samoyedFishing from "../../assets/dog-skin-samoyed.png";
+import goldenRetrieverFishing from "../../assets/dog-skin-golden-retriever.png";
 import type { BobberSkinId } from "../../domain/prototype";
 
 export interface BobberSkinOption {
@@ -31,6 +33,8 @@ export const bobberSkins: BobberSkinOption[] = [
   { value: "tuxedo", label: "奶牛猫", image: tuxedoCatFishing, floatX: 86.0, floatY: 80.8, inset: 12.5 },
   { value: "ragdoll", label: "布偶猫", image: ragdollCatFishing, floatX: 84.8, floatY: 80.0, inset: 12.5 },
   { value: "bengal", label: "孟加拉猫", image: bengalCatFishing, floatX: 85.8, floatY: 80.0, inset: 12.5 },
+  { value: "samoyed", label: "萨摩耶", image: samoyedFishing, floatX: 86.5, floatY: 81.0, inset: 12.5 },
+  { value: "golden_retriever", label: "金毛犬", image: goldenRetrieverFishing, floatX: 86.2, floatY: 80.9, inset: 12.5 },
   { value: "treasure_pearl", label: "黑珍珠奇遇猫", image: treasurePearlCatFishing, floatX: 85.7, floatY: 80.4, inset: 12.5 },
   { value: "treasure_crystal_shoe", label: "水晶鞋奇遇猫", image: treasureCrystalShoeCatFishing, floatX: 85.4, floatY: 80.9, inset: 12.5 },
   { value: "treasure_seal", label: "公章奇遇猫", image: treasureSealCatFishing, floatX: 84.0, floatY: 81.3, inset: 12.5 },

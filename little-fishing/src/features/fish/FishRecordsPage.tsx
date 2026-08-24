@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FishRecord, TreasureRecord } from "../../domain/prototype";
 import { getFishRecords, getTreasureRecords } from "../../ipc/client";
-import { PixelFishIcon } from "./PixelFishIcon";
+import { PixelFishIcon, specialFishDescriptions } from "./PixelFishIcon";
 import { FishRarityBadge } from "./FishRarityBadge";
 import { TreasureIcon } from "./TreasureIcon";
 
@@ -42,7 +42,7 @@ export function FishRecordsPage() {
       : <div className="fish-record-grid">{visibleRecords.map((record) => <article className={`fish-record-card ${record.caughtCount === 0 ? "uncaught" : ""}`} key={record.fishId}>
       <div className="fish-card-head"><PixelFishIcon fishId={record.fishId} label={record.name} /><div><div className="fish-title-line"><h3>{record.name}</h3><FishRarityBadge rarity={record.rarity} /></div><p>{record.pricePerKg.toFixed(2)} 元/公斤</p></div></div>
       <div className="fish-stats"><div><span>钓获</span><strong>{record.caughtCount} 条</strong></div><div><span>最长</span><strong>{record.maxLengthCm == null ? "—" : `${record.maxLengthCm.toFixed(1)} cm`}</strong></div><div><span>最重</span><strong>{record.maxWeightKg == null ? "—" : `${record.maxWeightKg.toFixed(2)} kg`}</strong></div></div>
-      <p className="fish-description">{record.latestDescription ?? "还没有钓到过，记录页安静得像一片水。"}</p>
+      <p className="fish-description">{record.latestDescription ?? specialFishDescriptions[record.fishId] ?? "还没有钓到过，记录页安静得像一片水。"}</p>
     </article>)}</div>}
 
     <div className="treasure-section-head">

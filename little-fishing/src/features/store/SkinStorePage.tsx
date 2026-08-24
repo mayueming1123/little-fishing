@@ -21,6 +21,8 @@ const skinStoreItems: StoreItem[] = [
   { skinId: "tuxedo", description: "穿着黑白小礼服，等鱼时也很体面。", unlock: "shop", price: 30_000 },
   { skinId: "ragdoll", description: "软乎乎的浅色长毛猫，适合慢慢守一竿。", unlock: "shop", price: 30_000 },
   { skinId: "bengal", description: "带着野性斑纹，只奖励给真正吃得下鱼的钓友。", unlock: "achievement" },
+  { skinId: "samoyed", description: "像一团守在岸边的白云，偶尔会对浮标吐吐舌头。", unlock: "shop", price: 20_000 },
+  { skinId: "golden_retriever", description: "暖金色的耐心钓友，看起来很擅长陪你慢慢等鱼。", unlock: "shop", price: 20_000 },
   { skinId: "treasure_pearl", description: "通过某种特殊成就获得。", unlock: "mystery" },
   { skinId: "treasure_crystal_shoe", description: "通过某种特殊成就获得。", unlock: "mystery" },
   { skinId: "treasure_seal", description: "通过某种特殊成就获得。", unlock: "mystery" },
@@ -65,8 +67,8 @@ export function SkinStorePage() {
   const weightProgress = Math.min(100, Math.max(0, ((store?.bodyWeightKg ?? 0) / REQUIRED_WEIGHT_KG) * 100));
   return <section className="section-page">
     <div className="section-intro">
-      <div><h2>猫咪皮肤商店</h2><p>卖鱼得到的金币可以换外观；皮肤只改变桌面浮标，不会影响钓鱼概率。</p></div>
-      <span>{store ? `已拥有 ${store.ownedSkinIds.length} / 13` : "正在清点"}</span>
+      <div><h2>悬浮皮肤商店</h2><p>卖鱼得到的金币可以换外观；皮肤只改变桌面浮标，不会影响钓鱼概率。</p></div>
+      <span>{store ? `已拥有 ${store.ownedSkinIds.length} / 15` : "正在清点"}</span>
     </div>
 
     <div className="store-balance" aria-label="商店账户">
@@ -97,7 +99,7 @@ export function SkinStorePage() {
           <div className="store-skin-stage">
             <img
               src={skin.image}
-              alt={mysteryLocked ? "未解锁成就皮肤剪影" : `${skin.label}钓鱼猫皮肤`}
+              alt={mysteryLocked ? "未解锁成就皮肤剪影" : `${skin.label}钓鱼皮肤`}
               draggable={false}
               style={{ "--skin-preview-inset": `${skin.inset}%` } as CSSProperties}
             />

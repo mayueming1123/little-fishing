@@ -56,8 +56,8 @@
       {
         "label": "toast",
         "title": "小小钓鱼提示",
-        "width": 330,
-        "height": 118,
+        "width": 220,
+        "height": 84,
         "resizable": false,
         "maximizable": false,
         "minimizable": false,

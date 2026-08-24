@@ -64,7 +64,7 @@ export function MainWindow() {
 
       <section className="content">
         <header className="content-header">
-          <div><p className="eyebrow">FISHING COMPANION</p><h1>{section === "fishing" ? "今天也慢慢等一竿" : section === "basket" ? "钓上来的鱼先放在这里" : section === "log" ? "每一竿都留下一点动静" : section === "fish" ? "每条鱼都有自己的记录" : section === "bait" ? "随手调一份今天的鱼饵" : section === "store" ? "给桌面浮标换一只猫" : "把陪伴方式调得顺手一点"}</h1><p className="subtitle">{section === "fishing" ? "不催促，不保底，水下什么时候有结果没人知道。" : section === "basket" ? "鱼获不会催你处理，想吃掉或卖掉时再来看看。" : section === "log" ? "回头看看等待、空军，以及已经发生过的每一竿。" : section === "fish" ? "筛选已钓到或未钓到的鱼；隐藏偏好仍然不会显示。" : section === "bait" ? "自由搭配成分与比例，真正的属性留在水下。" : section === "store" ? "金币换外观，体重解成就；都不会让下一条鱼更好钓。" : "通知、浮标和显示选项都只保存在这台电脑。"}</p></div>
+          <div><p className="eyebrow">FISHING COMPANION</p><h1>{section === "fishing" ? "今天也慢慢等一竿" : section === "basket" ? "钓上来的鱼先放在这里" : section === "log" ? "每一竿都留下一点动静" : section === "fish" ? "每条鱼都有自己的记录" : section === "bait" ? "随手调一份今天的鱼饵" : section === "store" ? "给桌面浮标换个伙伴" : "把陪伴方式调得顺手一点"}</h1><p className="subtitle">{section === "fishing" ? "不催促，不保底，水下什么时候有结果没人知道。" : section === "basket" ? "鱼获不会催你处理，想吃掉或卖掉时再来看看。" : section === "log" ? "回头看看等待、空军，以及已经发生过的每一竿。" : section === "fish" ? "筛选已钓到或未钓到的鱼；隐藏偏好仍然不会显示。" : section === "bait" ? "自由搭配成分与比例，真正的属性留在水下。" : section === "store" ? "金币换外观，体重解成就；都不会让下一条鱼更好钓。" : "通知、浮标和显示选项都只保存在这台电脑。"}</p></div>
           {!isTauriRuntime() && <span className="runtime-badge">前端预览模式</span>}
         </header>
 

@@ -1,3 +1,7 @@
+import spaghettiFish from "../../assets/fish-special-spaghetti.png";
+import pizzaFish from "../../assets/fish-special-pizza.png";
+import waterMonsterFish from "../../assets/fish-special-water-monster.png";
+
 type FishShape = "standard" | "deep" | "slender" | "catfish" | "eel" | "flat" | "grouper" | "pomfret";
 type FishMarking = "scales" | "stripe" | "bands" | "spots" | "speckles" | "lateral" | "saddle" | "plain";
 
@@ -56,6 +60,18 @@ export const fishIconSpecs: readonly FishIconSpec[] = [
   { shape: "slender", marking: "bands", body: "#a58b66", dark: "#53473b", accent: "#d1bd88", belly: "#c7bda5", spines: true },
 ] as const;
 
+const specialFishIcons: Readonly<Record<number, string>> = {
+  41: spaghettiFish,
+  42: pizzaFish,
+  43: waterMonsterFish,
+};
+
+export const specialFishDescriptions: Readonly<Record<number, string>> = {
+  41: "鱼身缠满番茄酱色的面条纹路，三颗圆滚滚的肉丸斑点随着摆尾轻轻晃动。",
+  42: "金黄鱼身像刚烤好的薄饼，奶酪色鳞片间整齐散着几枚红色圆斑。",
+  43: "它有三道软乎乎的背峰和一双水蓝色小鳍，离水后还在好奇地眨眼。",
+};
+
 const shapePaths: Record<FishShape, { outer: string; inner: string; eye: [number, number] }> = {
   standard: { outer: "M2 8h5v4h6v4h5v-4h6V8h24v4h8v4h6v8h-6v4h-8v4H24v-4h-6v-4h-5v4H7v4H2l4-12z", inner: "M14 18h6v-4h26v3h9v6h-9v3H20v-4h-6z", eye: [51, 17] },
   deep: { outer: "M3 9h5v4h6v3h5v-6h7V5h20v4h8v5h6v12h-6v5h-8v4H26v-4h-7v-7h-5v3H8v4H3l4-11z", inner: "M15 18h6v-6h24v3h9v10h-9v4H21v-7h-6z", eye: [50, 16] },
@@ -79,6 +95,10 @@ function Marking({ type, color }: { type: FishMarking; color: string }) {
 }
 
 export function PixelFishIcon({ fishId, label }: { fishId: number; label: string }) {
+  const specialIcon = specialFishIcons[fishId];
+  if (specialIcon) {
+    return <img className="pixel-fish special-fish-icon" data-fish-id={fishId} src={specialIcon} alt={`${label}像素图标`} draggable={false} />;
+  }
   const spec = fishIconSpecs[(fishId - 1 + fishIconSpecs.length) % fishIconSpecs.length];
   const shape = shapePaths[spec.shape];
   return <svg className="pixel-fish" data-fish-id={fishId} viewBox="0 0 64 40" role="img" aria-label={`${label}像素图标`} shapeRendering="crispEdges">

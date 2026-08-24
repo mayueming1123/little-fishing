@@ -6,6 +6,7 @@ const rarityLabels: Record<FishRarity, string> = {
   rare: "稀有",
   epic: "史诗",
   legendary: "传说",
+  special: "特殊",
 };
 
 export function FishRarityBadge({ rarity }: {

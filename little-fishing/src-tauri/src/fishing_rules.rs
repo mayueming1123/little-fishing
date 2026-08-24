@@ -102,6 +102,8 @@ const FISH_FEATURE_DESCRIPTIONS: [&str; 30] = [
 
 const TREASURE_ROLL_SCALE: u16 = 10_000;
 const TREASURE_WINNING_ROLLS: u16 = 30;
+const SPECIAL_FISH_ROLL_SCALE: u8 = 100;
+const SPECIAL_FISH_WINNING_ROLLS: u8 = 5;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -133,6 +135,7 @@ pub enum FishRarity {
     Rare,
     Epic,
     Legendary,
+    Special,
 }
 
 impl FishRarity {
@@ -150,6 +153,14 @@ impl FishRarity {
         }
     }
 
+    pub fn for_species(fish_id: i64, price_per_kg: f64) -> Self {
+        if (41..=43).contains(&fish_id) {
+            Self::Special
+        } else {
+            Self::from_price(price_per_kg)
+        }
+    }
+
     pub const fn minimum_similarity(self) -> f64 {
         match self {
             Self::Common => 0.40,
@@ -157,6 +168,7 @@ impl FishRarity {
             Self::Rare => 0.65,
             Self::Epic => 0.78,
             Self::Legendary => 0.90,
+            Self::Special => 0.0,
         }
     }
 
@@ -167,6 +179,7 @@ impl FishRarity {
             Self::Rare => "rare",
             Self::Epic => "epic",
             Self::Legendary => "legendary",
+            Self::Special => "special",
         }
     }
 
@@ -176,6 +189,7 @@ impl FishRarity {
             "rare" => Self::Rare,
             "epic" => Self::Epic,
             "legendary" => Self::Legendary,
+            "special" => Self::Special,
             _ => Self::Common,
         }
     }
@@ -187,6 +201,7 @@ impl FishRarity {
             Self::Rare => "稀有",
             Self::Epic => "史诗",
             Self::Legendary => "传说",
+            Self::Special => "特殊",
         }
     }
 }
@@ -820,6 +835,39 @@ pub fn fish_species_seeds() -> Vec<FishSpeciesSeed> {
             price_source_url: xiamen_aug,
             price_source_date: "2025-08-20",
         },
+        FishSpeciesSeed {
+            id: 41,
+            name: "番茄肉丸意大利面鱼",
+            price_per_kg: 200.0,
+            min_length_cm: 28.0,
+            max_length_cm: 70.0,
+            min_weight_kg: 0.8,
+            max_weight_kg: 4.5,
+            price_source_url: "game://special-fish",
+            price_source_date: "奇想定价",
+        },
+        FishSpeciesSeed {
+            id: 42,
+            name: "披萨鱼",
+            price_per_kg: 200.0,
+            min_length_cm: 22.0,
+            max_length_cm: 55.0,
+            min_weight_kg: 0.4,
+            max_weight_kg: 2.8,
+            price_source_url: "game://special-fish",
+            price_source_date: "奇想定价",
+        },
+        FishSpeciesSeed {
+            id: 43,
+            name: "小水怪",
+            price_per_kg: 200.0,
+            min_length_cm: 55.0,
+            max_length_cm: 140.0,
+            min_weight_kg: 3.0,
+            max_weight_kg: 18.0,
+            price_source_url: "game://special-fish",
+            price_source_date: "奇想定价",
+        },
     ]
 }
 
@@ -1106,6 +1154,19 @@ fn treasure_roll_succeeds(roll: u16) -> bool {
     roll < TREASURE_WINNING_ROLLS
 }
 
+fn special_fish_roll_succeeds(roll: u8) -> bool {
+    roll < SPECIAL_FISH_WINNING_ROLLS
+}
+
+fn special_fish_feature(fish_id: i64) -> Option<&'static str> {
+    match fish_id {
+        41 => Some("鱼身缠满番茄酱色的面条纹路，三颗圆滚滚的肉丸斑点随着摆尾轻轻晃动。"),
+        42 => Some("金黄鱼身像刚烤好的薄饼，奶酪色鳞片间整齐散着几枚红色圆斑。"),
+        43 => Some("它有三道软乎乎的背峰和一双水蓝色小鳍，离水后还在好奇地眨眼。"),
+        _ => None,
+    }
+}
+
 fn roll_legendary_treasure<R: Rng + ?Sized>(
     best_similarity: f64,
     rng: &mut R,
@@ -1134,11 +1195,13 @@ pub fn resolve_round<R: Rng + ?Sized>(
 ) -> RoundOutcome {
     let best_similarity = fish
         .iter()
+        .filter(|profile| profile.rarity != FishRarity::Special)
         .map(|profile| bait_similarity(bait.flavor, profile.preference))
         .max_by(f64::total_cmp)
         .unwrap_or(0.0);
     let mut candidates: Vec<(&FishProfile, f64, f64, f64)> = fish
         .iter()
+        .filter(|profile| profile.rarity != FishRarity::Special)
         .map(|profile| {
             let similarity = bait_similarity(bait.flavor, profile.preference);
             let threshold = profile.minimum_similarity;
@@ -1183,17 +1246,30 @@ pub fn resolve_round<R: Rng + ?Sized>(
         };
     }
 
-    let total_weight: f64 = candidates.iter().map(|candidate| candidate.2).sum();
-    let mut target = rng.random_range(0.0..total_weight.max(f64::EPSILON));
-    let mut selected = candidates[0];
-    for candidate in &candidates {
-        selected = *candidate;
-        if target <= candidate.2 {
-            break;
+    let special_profiles: Vec<&FishProfile> = fish
+        .iter()
+        .filter(|profile| profile.rarity == FishRarity::Special)
+        .collect();
+    let special_catch = !special_profiles.is_empty()
+        && special_fish_roll_succeeds(rng.random_range(0..SPECIAL_FISH_ROLL_SCALE));
+    let (profile, similarity) = if special_catch {
+        let profile = special_profiles
+            .choose(rng)
+            .expect("special fish pool is not empty");
+        (*profile, bait_similarity(bait.flavor, profile.preference))
+    } else {
+        let total_weight: f64 = candidates.iter().map(|candidate| candidate.2).sum();
+        let mut target = rng.random_range(0.0..total_weight.max(f64::EPSILON));
+        let mut selected = candidates[0];
+        for candidate in &candidates {
+            selected = *candidate;
+            if target <= candidate.2 {
+                break;
+            }
+            target -= candidate.2;
         }
-        target -= candidate.2;
-    }
-    let (profile, similarity, _, _) = selected;
+        (selected.0, selected.1)
+    };
     let weight_kg = rng.random_range(profile.min_weight_kg..=profile.max_weight_kg);
     let weight_progress = ((weight_kg - profile.min_weight_kg)
         / (profile.max_weight_kg - profile.min_weight_kg).max(f64::EPSILON))
@@ -1205,11 +1281,15 @@ pub fn resolve_round<R: Rng + ?Sized>(
         .choose(rng)
         .cloned()
         .unwrap_or_else(|| "浮标下沉，这一竿钓到了鱼。".to_owned());
-    let feature_description = texts
-        .features
-        .choose(rng)
-        .cloned()
-        .unwrap_or_else(|| "这条鱼的体态很匀称。".to_owned());
+    let feature_description = special_fish_feature(profile.id)
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            texts
+                .features
+                .choose(rng)
+                .cloned()
+                .unwrap_or_else(|| "这条鱼的体态很匀称。".to_owned())
+        });
     let description = format!("{process_description} {feature_description}");
 
     RoundOutcome::Caught {
@@ -1291,6 +1371,7 @@ mod tests {
         assert_eq!(FishRarity::from_price(150.0), FishRarity::Legendary);
         assert_eq!(FishRarity::Common.minimum_similarity(), 0.40);
         assert_eq!(FishRarity::Legendary.minimum_similarity(), 0.90);
+        assert_eq!(FishRarity::for_species(41, 200.0), FishRarity::Special);
     }
 
     #[test]
@@ -1341,18 +1422,19 @@ mod tests {
     fn seeded_fish_are_distributed_across_all_rarity_bands() {
         let counts = fish_species_seeds()
             .into_iter()
-            .fold([0_u32; 5], |mut counts, fish| {
-                let index = match FishRarity::from_price(fish.price_per_kg) {
+            .fold([0_u32; 6], |mut counts, fish| {
+                let index = match FishRarity::for_species(fish.id, fish.price_per_kg) {
                     FishRarity::Common => 0,
                     FishRarity::Uncommon => 1,
                     FishRarity::Rare => 2,
                     FishRarity::Epic => 3,
                     FishRarity::Legendary => 4,
+                    FishRarity::Special => 5,
                 };
                 counts[index] += 1;
                 counts
             });
-        assert_eq!(counts, [13, 9, 8, 6, 4]);
+        assert_eq!(counts, [13, 9, 8, 6, 4, 3]);
     }
 
     #[test]
@@ -1370,5 +1452,20 @@ mod tests {
             .count();
         assert_eq!(winning_rolls, 30);
         assert_eq!(legendary_treasure_seeds().len(), 5);
+    }
+
+    #[test]
+    fn special_fish_roll_is_exactly_five_percent_of_successful_catches() {
+        let winning_rolls = (0..SPECIAL_FISH_ROLL_SCALE)
+            .filter(|roll| special_fish_roll_succeeds(*roll))
+            .count();
+        assert_eq!(winning_rolls, 5);
+        assert_eq!(
+            fish_species_seeds()
+                .into_iter()
+                .filter(|fish| FishRarity::for_species(fish.id, fish.price_per_kg) == FishRarity::Special)
+                .count(),
+            3
+        );
     }
 }

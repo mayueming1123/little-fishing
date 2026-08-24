@@ -28,15 +28,31 @@ export function SettingsPage() {
   const [saved, setSaved] = useState<AppSettings>(defaultAppSettings);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [ownedSkinIds, setOwnedSkinIds] = useState<BobberSkinId[]>(["orange"]);
 
   useEffect(() => {
-    void Promise.all([getAppSettings(), getSkinStoreState()]).then(([value, store]) => {
-      setSettings(value);
-      setSaved(value);
-      setOwnedSkinIds(store.ownedSkinIds);
-    })
-      .catch(() => setMessage("暂时无法读取设置"));
+    let cancelled = false;
+    void getAppSettings()
+      .then((value) => {
+        if (cancelled) return;
+        setSettings(value);
+        setSaved(value);
+        setSettingsLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setMessage("暂时无法读取当前设置，请重新打开设置页再试");
+      });
+    void getSkinStoreState()
+      .then((store) => {
+        if (!cancelled) setOwnedSkinIds(store.ownedSkinIds);
+      })
+      .catch(() => {
+        if (!cancelled) setMessage((current) => current ?? "暂时无法读取已拥有的皮肤");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function patch(value: Partial<AppSettings>) {
@@ -64,7 +80,8 @@ export function SettingsPage() {
   }
 
   const dirty = JSON.stringify(settings) !== JSON.stringify(saved);
-  const availableSkins = bobberSkins.filter((skin) => ownedSkinIds.includes(skin.value));
+  const selectableSkinIds = new Set<BobberSkinId>(["orange", settings.bobberSkin, ...ownedSkinIds]);
+  const availableSkins = bobberSkins.filter((skin) => selectableSkinIds.has(skin.value));
   return <section className="section-page">
     <div className="section-intro"><div><h2>设置</h2><p>这里只放日常会用到的选项。修改后点击保存，窗口行为和显示风格会立即更新。</p></div><span>{dirty ? "有未保存修改" : "已保存"}</span></div>
     <div className="settings-layout">
@@ -78,8 +95,8 @@ export function SettingsPage() {
         <ToggleSetting checked={settings.bobberAlwaysOnTop} disabled={!settings.bobberVisible} label="浮标保持置顶" description="让浮标停留在普通窗口上方；全屏程序仍可能覆盖它。" onChange={(value) => patch({ bobberAlwaysOnTop: value })} />
       </article>
       <article className="paper-card settings-group settings-appearance"><h3>显示</h3>
-        <div className="setting-copy"><strong>悬浮猫咪皮肤</strong><small>这里只显示已经拥有的皮肤；新皮肤可在商店购买或兑换。</small></div>
-        <div className="skin-options" role="group" aria-label="悬浮猫咪皮肤">
+        <div className="setting-copy"><strong>悬浮伙伴皮肤</strong><small>这里只显示已经拥有的皮肤；新皮肤可在商店购买或兑换。</small></div>
+        <div className="skin-options" role="group" aria-label="悬浮伙伴皮肤">
           {availableSkins.map((skin) => <button
             type="button"
             className={`skin-option ${settings.bobberSkin === skin.value ? "active" : ""}`}
@@ -92,7 +109,7 @@ export function SettingsPage() {
         <div className="theme-options" role="group" aria-label="界面主题">{themes.map((theme) => <button className={settings.theme === theme.value ? "active" : ""} key={theme.value} onClick={() => patch({ theme: theme.value })}>{theme.label}</button>)}</div>
         <ToggleSetting checked={settings.reducedMotion} label="减少动态效果" description="停止浮标呼吸与轻微摆动，更适合长时间放在屏幕一角。" onChange={(value) => patch({ reducedMotion: value })} />
       </article>
-      <aside className="settings-save-card"><div><strong>设置保存在本机</strong><p>不需要登录，也不会同步到网络。关闭浮标不会停止正在进行的钓鱼。</p></div><button className="primary-button" disabled={!dirty || saving} onClick={() => void save()}>{saving ? "正在保存…" : "保存设置"}</button>{message && <div className="error-strip" role="status">{message}</div>}</aside>
+      <aside className="settings-save-card"><div><strong>设置保存在本机</strong><p>不需要登录，也不会同步到网络。关闭浮标不会停止正在进行的钓鱼。</p></div><button className="primary-button" disabled={!settingsLoaded || !dirty || saving} onClick={() => void save()}>{saving ? "正在保存…" : "保存设置"}</button>{message && <div className="error-strip" role="status">{message}</div>}</aside>
     </div>
   </section>;
 }

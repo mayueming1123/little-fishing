@@ -77,7 +77,7 @@ export interface BaitEditorData {
   canEdit: boolean;
 }
 
-export type FishRarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
+export type FishRarity = "common" | "uncommon" | "rare" | "epic" | "legendary" | "special";
 
 export interface FishRecord {
   fishId: number;
@@ -132,10 +132,12 @@ export interface FishingLogEntry {
 export interface BobberToastPayload {
   title: string;
   body: string;
+  kind: "event" | "catch";
+  count: number;
 }
 
 export type AppTheme = "system" | "light" | "dark";
-export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal" | "treasure_pearl" | "treasure_crystal_shoe" | "treasure_seal" | "treasure_wood_sword" | "treasure_martial_manual";
+export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal" | "samoyed" | "golden_retriever" | "treasure_pearl" | "treasure_crystal_shoe" | "treasure_seal" | "treasure_wood_sword" | "treasure_martial_manual";
 
 export interface SkinStoreState {
   money: number;

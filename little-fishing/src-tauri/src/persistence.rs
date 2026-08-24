@@ -294,7 +294,7 @@ impl SqliteStore {
             )?;
         }
         for fish in fish_species_seeds() {
-            let rarity = FishRarity::from_price(fish.price_per_kg);
+            let rarity = FishRarity::for_species(fish.id, fish.price_per_kg);
             connection.execute(
                 "INSERT INTO fish_species (
                      id, name, price_per_kg, rarity, minimum_similarity,

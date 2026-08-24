@@ -28,6 +28,8 @@ use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
+#[cfg(target_os = "macos")]
+use tauri::RunEvent;
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 
 const STATE_EVENT: &str = "prototype-state-changed";
@@ -40,7 +42,7 @@ fn shop_skin_price(value: &str) -> Option<f64> {
     match value {
         "gray" => Some(5_000.0),
         "calico" => Some(10_000.0),
-        "siamese" => Some(20_000.0),
+        "siamese" | "samoyed" | "golden_retriever" => Some(20_000.0),
         "silver_tabby" | "tuxedo" | "ragdoll" => Some(30_000.0),
         _ => None,
     }
@@ -57,6 +59,8 @@ fn is_known_skin_id(value: &str) -> bool {
             | "tuxedo"
             | "ragdoll"
             | "bengal"
+            | "samoyed"
+            | "golden_retriever"
             | "treasure_pearl"
             | "treasure_crystal_shoe"
             | "treasure_seal"
@@ -413,9 +417,24 @@ struct ToastState {
 }
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct BobberToastPayload {
     title: String,
     body: String,
+    kind: BobberToastKind,
+    count: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BobberToastKind {
+    Event,
+    Catch,
+}
+
+struct ResolvedRound {
+    summary: String,
+    caught: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -473,7 +492,7 @@ fn resolve_with_store(
     round_started_at: Option<DateTime<Utc>>,
     planned_duration_seconds: u64,
     waiting_events: &[WaitingEvent],
-) -> Result<String, String> {
+) -> Result<ResolvedRound, String> {
     let local_date = Local::now().date_naive().to_string();
     let mut rng = rand::rng();
     store
@@ -486,6 +505,7 @@ fn resolve_with_store(
         .load_fish_profiles(&local_date)
         .map_err(|error| error.to_string())?;
     let outcome = resolve_round(&bait, &fish, outcome_text_catalog, &mut rng);
+    let caught = matches!(&outcome, fishing_rules::RoundOutcome::Caught { .. });
     let settled_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
     let round_started_at =
         round_started_at.map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true));
@@ -501,7 +521,10 @@ fn resolve_with_store(
             &outcome,
         )
         .map_err(|error| error.to_string())?;
-    Ok(outcome.summary())
+    Ok(ResolvedRound {
+        summary: outcome.summary(),
+        caught,
+    })
 }
 
 fn resolve_current_round(
@@ -511,7 +534,7 @@ fn resolve_current_round(
     round_started_at: Option<DateTime<Utc>>,
     planned_duration_seconds: u64,
     waiting_events: &[WaitingEvent],
-) -> Result<String, String> {
+) -> Result<ResolvedRound, String> {
     let persistence = app.state::<PersistenceState>();
     resolve_with_store(
         &persistence.store,
@@ -525,6 +548,9 @@ fn resolve_current_round(
 }
 
 fn show_main(app: &AppHandle) {
+    if let Some(panel) = app.get_webview_window("panel") {
+        let _ = panel.hide();
+    }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
@@ -533,6 +559,7 @@ fn show_main(app: &AppHandle) {
 }
 
 fn toast_position(
+    kind: BobberToastKind,
     anchor_position: tauri::PhysicalPosition<i32>,
     anchor_size: tauri::PhysicalSize<u32>,
     toast_size: tauri::PhysicalSize<u32>,
@@ -545,33 +572,26 @@ fn toast_position(
         .saturating_add(monitor_size.height as i32);
     let toast_width = toast_size.width as i32;
     let toast_height = toast_size.height as i32;
-    let preferred_left = anchor_position
-        .x
-        .saturating_sub(toast_width.saturating_add(12));
-    let preferred_x = if preferred_left >= monitor_position.x {
-        preferred_left
-    } else {
-        anchor_position
+    let preferred_x = match kind {
+        BobberToastKind::Event => anchor_position.x.saturating_sub(toast_width).saturating_add(22),
+        BobberToastKind::Catch => anchor_position
             .x
             .saturating_add(anchor_size.width as i32)
-            .saturating_add(12)
+            .saturating_sub(22),
     };
     let x = preferred_x.clamp(
         monitor_position.x,
         monitor_right.saturating_sub(toast_width),
     );
-    let centered_y = anchor_position
-        .y
-        .saturating_add(anchor_size.height as i32 / 2)
-        .saturating_sub(toast_height / 2);
-    let y = centered_y.clamp(
+    let preferred_y = anchor_position.y.saturating_sub(toast_height).saturating_add(26);
+    let y = preferred_y.clamp(
         monitor_position.y,
         monitor_bottom.saturating_sub(toast_height),
     );
     tauri::PhysicalPosition::new(x, y)
 }
 
-fn place_toast_near_bobber(app: &AppHandle) {
+fn place_toast_near_bobber(app: &AppHandle, kind: BobberToastKind) {
     let (Some(bobber), Some(toast)) = (
         app.get_webview_window("bobber"),
         app.get_webview_window("toast"),
@@ -587,6 +607,7 @@ fn place_toast_near_bobber(app: &AppHandle) {
         return;
     };
     let position = toast_position(
+        kind,
         anchor_position,
         anchor_size,
         toast_size,
@@ -596,7 +617,12 @@ fn place_toast_near_bobber(app: &AppHandle) {
     let _ = toast.set_position(position);
 }
 
-fn send_interactive_notification(app: &AppHandle, title: &str, body: &str) -> Result<(), String> {
+fn send_interactive_notification(
+    app: &AppHandle,
+    kind: BobberToastKind,
+    title: &str,
+    body: &str,
+) -> Result<(), String> {
     if !app
         .state::<SettingsState>()
         .0
@@ -609,27 +635,29 @@ fn send_interactive_notification(app: &AppHandle, title: &str, body: &str) -> Re
     let toast = app
         .get_webview_window("toast")
         .ok_or("toast window not found")?;
-    let sequence = app
-        .state::<ToastState>()
+    let toast_state = app.state::<ToastState>();
+    let sequence = toast_state
         .sequence
         .fetch_add(1, Ordering::SeqCst)
         .saturating_add(1);
-    *app.state::<ToastState>()
-        .latest
-        .lock()
-        .expect("toast state poisoned") = Some(BobberToastPayload {
-        title: title.to_owned(),
-        body: body.to_owned(),
-    });
-    place_toast_near_bobber(app);
+    let payload = {
+        let mut latest = toast_state
+            .latest
+            .lock()
+            .expect("toast state poisoned");
+        let count = latest.as_ref().map_or(1, |message| message.count.saturating_add(1));
+        let payload = BobberToastPayload {
+            title: title.to_owned(),
+            body: body.to_owned(),
+            kind,
+            count,
+        };
+        *latest = Some(payload.clone());
+        payload
+    };
+    place_toast_near_bobber(app, kind);
     toast
-        .emit(
-            TOAST_EVENT,
-            BobberToastPayload {
-                title: title.to_owned(),
-                body: body.to_owned(),
-            },
-        )
+        .emit(TOAST_EVENT, payload)
         .map_err(|error| error.to_string())?;
     toast.show().map_err(|error| error.to_string())?;
     let app = app.clone();
@@ -899,6 +927,7 @@ fn spawn_scheduler(app: AppHandle) {
             if let Some(event) = waiting_event {
                 let _ = send_interactive_notification(
                     &app,
+                    BobberToastKind::Event,
                     waiting_event_notification_title(&event.category),
                     &event.description,
                 );
@@ -916,7 +945,7 @@ fn spawn_scheduler(app: AppHandle) {
             let settling_events = settling.waiting_events.clone();
             broadcast(&app, settling);
             thread::sleep(Duration::from_millis(650));
-            let result_summary = resolve_current_round(
+            let resolved = resolve_current_round(
                 &app,
                 settling_round_number,
                 settling_recipe_id,
@@ -926,9 +955,26 @@ fn spawn_scheduler(app: AppHandle) {
             )
             .unwrap_or_else(|error| {
                 eprintln!("failed to resolve fishing round: {error}");
-                "这一竿到了结算时间，但记录结果时出了点小问题。".to_owned()
+                ResolvedRound {
+                    summary: "这一竿到了结算时间，但记录结果时出了点小问题。".to_owned(),
+                    caught: false,
+                }
             });
-            let _ = send_interactive_notification(&app, "小小钓鱼 · 本竿结果", &result_summary);
+            let toast_kind = if resolved.caught {
+                BobberToastKind::Catch
+            } else {
+                BobberToastKind::Event
+            };
+            let _ = send_interactive_notification(
+                &app,
+                toast_kind,
+                if resolved.caught {
+                    "小小钓鱼 · 中鱼了"
+                } else {
+                    "小小钓鱼 · 本竿动静"
+                },
+                &resolved.summary,
+            );
             let completed = {
                 let persistence = app.state::<PersistenceState>();
                 let state = app.state::<PrototypeAppState>();
@@ -936,7 +982,7 @@ fn spawn_scheduler(app: AppHandle) {
                 if state.phase != FishingPhase::Settling {
                     continue;
                 }
-                state.last_result = Some(result_summary);
+                state.last_result = Some(resolved.summary);
                 if state.is_fishing && !state.stop_after_settlement {
                     state.schedule_round(Utc::now(), &persistence.event_catalog);
                 } else {
@@ -1206,10 +1252,9 @@ fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
         .lock()
         .expect("settings state poisoned")
         .clone();
-    settings.autostart_enabled = app
-        .autolaunch()
-        .is_enabled()
-        .map_err(|error| error.to_string())?;
+    if let Ok(autostart_enabled) = app.autolaunch().is_enabled() {
+        settings.autostart_enabled = autostart_enabled;
+    }
     Ok(settings)
 }
 
@@ -1230,7 +1275,15 @@ fn update_app_settings(app: AppHandle, mut settings: AppSettings) -> Result<AppS
         return Err("这款皮肤尚未解锁，请先前往商店".to_owned());
     }
     let autostart = app.autolaunch();
-    let autostart_enabled = autostart.is_enabled().map_err(|error| error.to_string())?;
+    let cached_autostart_enabled = app
+        .state::<SettingsState>()
+        .0
+        .lock()
+        .expect("settings state poisoned")
+        .autostart_enabled;
+    let autostart_enabled = autostart
+        .is_enabled()
+        .unwrap_or(cached_autostart_enabled);
     if settings.autostart_enabled != autostart_enabled {
         if settings.autostart_enabled {
             autostart.enable().map_err(|error| error.to_string())?;
@@ -1238,7 +1291,9 @@ fn update_app_settings(app: AppHandle, mut settings: AppSettings) -> Result<AppS
             autostart.disable().map_err(|error| error.to_string())?;
         }
     }
-    settings.autostart_enabled = autostart.is_enabled().map_err(|error| error.to_string())?;
+    settings.autostart_enabled = autostart
+        .is_enabled()
+        .unwrap_or(settings.autostart_enabled);
     app.state::<PersistenceState>()
         .store
         .save_app_settings(
@@ -1278,7 +1333,12 @@ fn request_app_exit(app: AppHandle) {
 
 #[tauri::command]
 fn send_test_notification(app: AppHandle) -> Result<(), String> {
-    send_interactive_notification(&app, "小小钓鱼", "测试提示已送达，点击可以打开主窗口。")
+    send_interactive_notification(
+        &app,
+        BobberToastKind::Event,
+        "小小钓鱼",
+        "测试提示已送达，点击可以打开主窗口。",
+    )
 }
 
 #[tauri::command]
@@ -1307,7 +1367,7 @@ fn activate_bobber_toast(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main(app)
         }))
@@ -1373,6 +1433,7 @@ pub fn run() {
                             &state.waiting_events,
                         )
                         .ok()
+                        .map(|result| result.summary)
                     } else {
                         None
                     };
@@ -1461,8 +1522,16 @@ pub fn run() {
             get_pending_bobber_toast,
             activate_bobber_toast,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running little-fishing");
+        .build(tauri::generate_context!())
+        .expect("error while building little-fishing");
+    app.run(|app_handle, event| {
+        #[cfg(target_os = "macos")]
+        if let RunEvent::Reopen { .. } = event {
+            show_main(app_handle);
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app_handle, event);
+    });
 }
 
 #[cfg(test)]
@@ -1474,12 +1543,16 @@ mod tests {
         assert_eq!(shop_skin_price("gray"), Some(5_000.0));
         assert_eq!(shop_skin_price("calico"), Some(10_000.0));
         assert_eq!(shop_skin_price("siamese"), Some(20_000.0));
+        assert_eq!(shop_skin_price("samoyed"), Some(20_000.0));
+        assert_eq!(shop_skin_price("golden_retriever"), Some(20_000.0));
         assert_eq!(shop_skin_price("silver_tabby"), Some(30_000.0));
         assert_eq!(shop_skin_price("orange"), None);
         assert_eq!(shop_skin_price("bengal"), None);
         assert_eq!(shop_skin_price("treasure_pearl"), None);
         assert!(is_known_skin_id("treasure_pearl"));
         assert!(is_known_skin_id("treasure_martial_manual"));
+        assert!(is_known_skin_id("samoyed"));
+        assert!(is_known_skin_id("golden_retriever"));
     }
 
     #[test]
@@ -1487,25 +1560,37 @@ mod tests {
         let monitor_position = tauri::PhysicalPosition::new(0, 0);
         let monitor_size = tauri::PhysicalSize::new(1_920, 1_080);
         let bobber_size = tauri::PhysicalSize::new(108, 108);
-        let toast_size = tauri::PhysicalSize::new(330, 118);
+        let toast_size = tauri::PhysicalSize::new(220, 84);
 
-        let right_side = toast_position(
-            tauri::PhysicalPosition::new(1_760, 300),
+        let event_bubble = toast_position(
+            BobberToastKind::Event,
+            tauri::PhysicalPosition::new(800, 300),
             bobber_size,
             toast_size,
             monitor_position,
             monitor_size,
         );
-        assert_eq!(right_side, tauri::PhysicalPosition::new(1_418, 295));
+        assert_eq!(event_bubble, tauri::PhysicalPosition::new(602, 242));
 
-        let left_side = toast_position(
-            tauri::PhysicalPosition::new(10, 1_040),
+        let catch_bubble = toast_position(
+            BobberToastKind::Catch,
+            tauri::PhysicalPosition::new(800, 300),
             bobber_size,
             toast_size,
             monitor_position,
             monitor_size,
         );
-        assert_eq!(left_side, tauri::PhysicalPosition::new(130, 962));
+        assert_eq!(catch_bubble, tauri::PhysicalPosition::new(886, 242));
+
+        let clamped = toast_position(
+            BobberToastKind::Catch,
+            tauri::PhysicalPosition::new(1_880, 10),
+            bobber_size,
+            toast_size,
+            monitor_position,
+            monitor_size,
+        );
+        assert_eq!(clamped, tauri::PhysicalPosition::new(1_700, 0));
     }
 
     #[test]
