@@ -8,7 +8,8 @@ use fishing_rules::{
     resolve_round,
 };
 use persistence::{
-    FishingLogEntry, PersistedRoundState, PlayerSummary, SqliteStore, StoredAppSettings,
+    AdminContentStats, AdminFishRecord, FishingLogEntry, PersistedRoundState, PlayerSummary,
+    SqliteStore, StoredAppSettings,
 };
 use rand::Rng;
 use round_engine::{EventCatalog, WaitingEvent, generate_round_plan};
@@ -35,6 +36,8 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 const STATE_EVENT: &str = "prototype-state-changed";
 const SETTINGS_EVENT: &str = "app-settings-changed";
 const TOAST_EVENT: &str = "bobber-toast";
+const SKIN_PREVIEW_EVENT: &str = "bobber-skin-preview";
+const OWNER_ADMIN_KEY_HASH: u64 = 0xfb80_ee4d_7bb6_6105;
 const ACHIEVEMENT_SKIN_ID: &str = "bengal";
 const ACHIEVEMENT_WEIGHT_KG: f64 = 1_000.0;
 
@@ -410,6 +413,10 @@ struct LifecycleState {
     is_quitting: AtomicBool,
 }
 
+struct AdminAccessState {
+    authorized: bool,
+}
+
 #[derive(Default)]
 struct ToastState {
     sequence: AtomicU64,
@@ -445,6 +452,34 @@ struct SkinStoreState {
     owned_skin_ids: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminSnapshot {
+    player: PlayerSummary,
+    fish: Vec<AdminFishRecord>,
+    stats: AdminContentStats,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminFishInput {
+    id: i64,
+    price_per_kg: f64,
+    rarity: fishing_rules::FishRarity,
+    min_length_cm: f64,
+    max_length_cm: f64,
+    min_weight_kg: f64,
+    max_weight_kg: f64,
+    enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminMutationResult {
+    snapshot: AdminSnapshot,
+    backup_path: String,
+}
+
 fn load_skin_store_state(store: &SqliteStore) -> Result<SkinStoreState, String> {
     let player = store
         .load_player_summary()
@@ -457,6 +492,52 @@ fn load_skin_store_state(store: &SqliteStore) -> Result<SkinStoreState, String> 
         body_weight_kg: player.body_weight_kg,
         owned_skin_ids,
     })
+}
+
+fn owner_key_hash(value: &str) -> u64 {
+    value.trim().as_bytes().iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+fn ensure_admin_access(app: &AppHandle) -> Result<(), String> {
+    if !app.state::<AdminAccessState>().authorized {
+        return Err("此电脑没有本机管理权限".to_owned());
+    }
+    Ok(())
+}
+
+fn ensure_admin_window(window: &WebviewWindow, app: &AppHandle) -> Result<(), String> {
+    ensure_admin_access(app)?;
+    if window.label() != "admin" {
+        return Err("管理接口只允许本机管理窗口调用".to_owned());
+    }
+    Ok(())
+}
+
+fn load_admin_snapshot(store: &SqliteStore) -> Result<AdminSnapshot, String> {
+    Ok(AdminSnapshot {
+        player: store
+            .load_player_summary()
+            .map_err(|error| error.to_string())?,
+        fish: store
+            .load_admin_fish_records()
+            .map_err(|error| error.to_string())?,
+        stats: store
+            .load_admin_content_stats()
+            .map_err(|error| error.to_string())?,
+    })
+}
+
+fn create_admin_backup(store: &SqliteStore) -> Result<String, String> {
+    let file_stem = format!(
+        "admin-{}-{:016x}",
+        Utc::now().format("%Y%m%dT%H%M%S%.3fZ"),
+        rand::random::<u64>()
+    );
+    store
+        .create_admin_backup(&file_stem)
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 fn snapshot(app: &AppHandle) -> PrototypeSnapshot {
@@ -558,6 +639,32 @@ fn show_main(app: &AppHandle) {
     }
 }
 
+fn show_admin(app: &AppHandle) -> Result<(), String> {
+    ensure_admin_access(app)?;
+    if let Some(panel) = app.get_webview_window("panel") {
+        let _ = panel.hide();
+    }
+    let window = if let Some(window) = app.get_webview_window("admin") {
+        window
+    } else {
+        tauri::WebviewWindowBuilder::new(
+            app,
+            "admin",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("小小钓鱼 · 本机管理后台")
+        .inner_size(1180.0, 780.0)
+        .min_inner_size(980.0, 640.0)
+        .center()
+        .visible(false)
+        .build()
+        .map_err(|error| error.to_string())?
+    };
+    window.unminimize().map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
+}
+
 fn toast_position(
     kind: BobberToastKind,
     anchor_position: tauri::PhysicalPosition<i32>,
@@ -655,11 +762,14 @@ fn send_interactive_notification(
         *latest = Some(payload.clone());
         payload
     };
+    toast
+        .set_always_on_top(true)
+        .map_err(|error| error.to_string())?;
     place_toast_near_bobber(app, kind);
+    toast.show().map_err(|error| error.to_string())?;
     toast
         .emit(TOAST_EVENT, payload)
         .map_err(|error| error.to_string())?;
-    toast.show().map_err(|error| error.to_string())?;
     let app = app.clone();
     thread::spawn(move || {
         thread::sleep(Duration::from_secs(8));
@@ -925,12 +1035,14 @@ fn spawn_scheduler(app: AppHandle) {
                 }
             };
             if let Some(event) = waiting_event {
-                let _ = send_interactive_notification(
+                if let Err(error) = send_interactive_notification(
                     &app,
                     BobberToastKind::Event,
                     waiting_event_notification_title(&event.category),
                     &event.description,
-                );
+                ) {
+                    eprintln!("failed to show waiting event bubble: {error}");
+                }
                 continue;
             }
             let Some(settling) = settling else { continue };
@@ -965,7 +1077,7 @@ fn spawn_scheduler(app: AppHandle) {
             } else {
                 BobberToastKind::Event
             };
-            let _ = send_interactive_notification(
+            if let Err(error) = send_interactive_notification(
                 &app,
                 toast_kind,
                 if resolved.caught {
@@ -974,7 +1086,9 @@ fn spawn_scheduler(app: AppHandle) {
                     "小小钓鱼 · 本竿动静"
                 },
                 &resolved.summary,
-            );
+            ) {
+                eprintln!("failed to show round result bubble: {error}");
+            }
             let completed = {
                 let persistence = app.state::<PersistenceState>();
                 let state = app.state::<PrototypeAppState>();
@@ -1139,6 +1253,95 @@ fn get_player_summary(app: AppHandle) -> Result<PlayerSummary, String> {
 }
 
 #[tauri::command]
+fn get_admin_snapshot(window: WebviewWindow, app: AppHandle) -> Result<AdminSnapshot, String> {
+    ensure_admin_window(&window, &app)?;
+    load_admin_snapshot(&app.state::<PersistenceState>().store)
+}
+
+#[tauri::command]
+fn create_admin_database_backup(
+    window: WebviewWindow,
+    app: AppHandle,
+) -> Result<String, String> {
+    ensure_admin_window(&window, &app)?;
+    create_admin_backup(&app.state::<PersistenceState>().store)
+}
+
+#[tauri::command]
+fn update_admin_player(
+    window: WebviewWindow,
+    app: AppHandle,
+    body_weight_kg: f64,
+    money: f64,
+) -> Result<AdminMutationResult, String> {
+    ensure_admin_window(&window, &app)?;
+    if !body_weight_kg.is_finite() || !(0.0..=1_000_000.0).contains(&body_weight_kg) {
+        return Err("体重必须是 0～1,000,000 kg 之间的有限数值".to_owned());
+    }
+    if !money.is_finite() || !(0.0..=1_000_000_000_000.0).contains(&money) {
+        return Err("金币必须是 0～1,000,000,000,000 之间的有限数值".to_owned());
+    }
+    let persistence = app.state::<PersistenceState>();
+    let backup_path = create_admin_backup(&persistence.store)?;
+    persistence
+        .store
+        .update_admin_player(
+            body_weight_kg,
+            money,
+            &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(AdminMutationResult {
+        snapshot: load_admin_snapshot(&persistence.store)?,
+        backup_path,
+    })
+}
+
+#[tauri::command]
+fn update_admin_fish(
+    window: WebviewWindow,
+    app: AppHandle,
+    fish: AdminFishInput,
+) -> Result<AdminMutationResult, String> {
+    ensure_admin_window(&window, &app)?;
+    let values = [
+        fish.price_per_kg,
+        fish.min_length_cm,
+        fish.max_length_cm,
+        fish.min_weight_kg,
+        fish.max_weight_kg,
+    ];
+    if fish.id <= 0 || values.iter().any(|value| !value.is_finite() || *value <= 0.0) {
+        return Err("鱼类价格、长度和重量必须填写大于 0 的有限数值".to_owned());
+    }
+    if fish.price_per_kg > 1_000_000_000.0 {
+        return Err("鱼价不能超过 1,000,000,000 元/kg".to_owned());
+    }
+    if fish.min_length_cm >= fish.max_length_cm || fish.min_weight_kg >= fish.max_weight_kg {
+        return Err("最大长度和最大重量必须分别大于最小值".to_owned());
+    }
+    let persistence = app.state::<PersistenceState>();
+    let backup_path = create_admin_backup(&persistence.store)?;
+    persistence
+        .store
+        .update_admin_fish(
+            fish.id,
+            fish.price_per_kg,
+            fish.rarity,
+            fish.min_length_cm,
+            fish.max_length_cm,
+            fish.min_weight_kg,
+            fish.max_weight_kg,
+            fish.enabled,
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(AdminMutationResult {
+        snapshot: load_admin_snapshot(&persistence.store)?,
+        backup_path,
+    })
+}
+
+#[tauri::command]
 fn get_skin_store_state(app: AppHandle) -> Result<SkinStoreState, String> {
     load_skin_store_state(&app.state::<PersistenceState>().store)
 }
@@ -1198,6 +1401,29 @@ fn claim_weight_skin(app: AppHandle, skin_id: String) -> Result<SkinStoreState, 
             _ => error.to_string(),
         })?;
     load_skin_store_state(&persistence.store)
+}
+
+#[tauri::command]
+fn preview_bobber_skin(app: AppHandle, skin_id: String) -> Result<(), String> {
+    if !is_known_skin_id(&skin_id) {
+        return Err("未知的悬浮伙伴皮肤".to_owned());
+    }
+    if !app
+        .state::<PersistenceState>()
+        .store
+        .is_skin_owned(&skin_id)
+        .map_err(|error| error.to_string())?
+    {
+        return Err("这款皮肤尚未解锁".to_owned());
+    }
+    app.emit_to("bobber", SKIN_PREVIEW_EVENT, Some(skin_id))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn clear_bobber_skin_preview(app: AppHandle) -> Result<(), String> {
+    app.emit_to("bobber", SKIN_PREVIEW_EVENT, Option::<String>::None)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1311,6 +1537,14 @@ fn update_app_settings(app: AppHandle, mut settings: AppSettings) -> Result<AppS
 }
 
 #[tauri::command]
+fn request_local_admin_access(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("管理入口只接受主窗口操作".to_owned());
+    }
+    show_admin(&app)
+}
+
+#[tauri::command]
 fn show_main_window(app: AppHandle) {
     show_main(&app);
 }
@@ -1388,6 +1622,13 @@ pub fn run() {
                     app_data_dir.display()
                 ))
             })?;
+            let admin_key_path = app_data_dir.join("local-admin-owner.key");
+            let admin_authorized = fs::read_to_string(&admin_key_path)
+                .map(|value| owner_key_hash(&value) == OWNER_ADMIN_KEY_HASH)
+                .unwrap_or(false);
+            app.manage(AdminAccessState {
+                authorized: admin_authorized,
+            });
             let database_path = app_data_dir.join("little-fishing.sqlite3");
             let store = SqliteStore::open(&database_path).map_err(|error| {
                 std::io::Error::other(format!(
@@ -1506,14 +1747,21 @@ pub fn run() {
             get_fish_records,
             get_treasure_records,
             get_player_summary,
+            get_admin_snapshot,
+            create_admin_database_backup,
+            update_admin_player,
+            update_admin_fish,
             get_skin_store_state,
             purchase_skin,
             claim_weight_skin,
+            preview_bobber_skin,
+            clear_bobber_skin_preview,
             get_fishing_log,
             get_pending_catches,
             handle_catch,
             get_app_settings,
             update_app_settings,
+            request_local_admin_access,
             show_main_window,
             toggle_compact_panel,
             show_bobber_context_menu,
@@ -1553,6 +1801,12 @@ mod tests {
         assert!(is_known_skin_id("treasure_martial_manual"));
         assert!(is_known_skin_id("samoyed"));
         assert!(is_known_skin_id("golden_retriever"));
+    }
+
+    #[test]
+    fn owner_key_hash_is_stable_and_ignores_trailing_newlines() {
+        assert_eq!(owner_key_hash("hello"), 0xa430_d846_80aa_bd0b);
+        assert_eq!(owner_key_hash("hello\r\n"), 0xa430_d846_80aa_bd0b);
     }
 
     #[test]

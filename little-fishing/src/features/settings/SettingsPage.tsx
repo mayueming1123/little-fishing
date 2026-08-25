@@ -1,7 +1,14 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { defaultAppSettings, type AppSettings, type AppTheme, type BobberSkinId } from "../../domain/prototype";
 import { bobberSkins } from "../bobber/skins";
-import { getAppSettings, getSkinStoreState, sendPrototypeNotification, updateAppSettings } from "../../ipc/client";
+import {
+  clearBobberSkinPreview,
+  getAppSettings,
+  getSkinStoreState,
+  previewBobberSkin,
+  sendPrototypeNotification,
+  updateAppSettings,
+} from "../../ipc/client";
 
 function ToggleSetting({ checked, disabled, label, description, onChange }: {
   checked: boolean;
@@ -52,6 +59,7 @@ export function SettingsPage() {
       });
     return () => {
       cancelled = true;
+      void clearBobberSkinPreview().catch(() => undefined);
     };
   }, []);
 
@@ -66,11 +74,22 @@ export function SettingsPage() {
       const next = await updateAppSettings(settings);
       setSettings(next);
       setSaved(next);
+      await clearBobberSkinPreview().catch(() => undefined);
       setMessage("设置已保存并立即生效。");
     } catch (error) {
       setMessage(typeof error === "string" ? error : "设置没有保存成功");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function chooseSkin(skinId: BobberSkinId) {
+    patch({ bobberSkin: skinId });
+    try {
+      await previewBobberSkin(skinId);
+      setMessage("正在桌面浮标上临时预览；离开设置页会恢复已保存皮肤。");
+    } catch (error) {
+      setMessage(typeof error === "string" ? error : "暂时无法预览这款皮肤");
     }
   }
 
@@ -95,14 +114,14 @@ export function SettingsPage() {
         <ToggleSetting checked={settings.bobberAlwaysOnTop} disabled={!settings.bobberVisible} label="浮标保持置顶" description="让浮标停留在普通窗口上方；全屏程序仍可能覆盖它。" onChange={(value) => patch({ bobberAlwaysOnTop: value })} />
       </article>
       <article className="paper-card settings-group settings-appearance"><h3>显示</h3>
-        <div className="setting-copy"><strong>悬浮伙伴皮肤</strong><small>这里只显示已经拥有的皮肤；新皮肤可在商店购买或兑换。</small></div>
+        <div className="setting-copy"><strong>悬浮伙伴皮肤</strong><small>点击皮肤会立即在桌面浮标上临时预览；只有保存后才会永久生效。</small></div>
         <div className="skin-options" role="group" aria-label="悬浮伙伴皮肤">
           {availableSkins.map((skin) => <button
             type="button"
             className={`skin-option ${settings.bobberSkin === skin.value ? "active" : ""}`}
             aria-pressed={settings.bobberSkin === skin.value}
             key={skin.value}
-            onClick={() => patch({ bobberSkin: skin.value })}
+            onClick={() => void chooseSkin(skin.value)}
           ><img src={skin.image} alt="" draggable={false} style={{ "--skin-preview-inset": `${skin.inset}%` } as CSSProperties} /><span>{skin.label}</span></button>)}
         </div>
         <div className="setting-copy"><strong>界面主题</strong><small>选择跟随 Windows，或固定使用浅色、深色外观。</small></div>

@@ -7,7 +7,11 @@ use crate::round_engine::{EventCatalog, WaitingEvent, event_description_seeds};
 use rand::Rng;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
-use std::{path::Path, sync::Mutex};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
 const TREASURE_SKIN_REWARDS: [(i64, &str); 5] = [
     (1, "treasure_pearl"),
@@ -76,6 +80,32 @@ pub struct PlayerSummary {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AdminFishRecord {
+    pub id: i64,
+    pub name: String,
+    pub price_per_kg: f64,
+    pub rarity: FishRarity,
+    pub min_length_cm: f64,
+    pub max_length_cm: f64,
+    pub min_weight_kg: f64,
+    pub max_weight_kg: f64,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminContentStats {
+    pub fish_count: u64,
+    pub enabled_fish_count: u64,
+    pub bait_ingredient_count: u64,
+    pub waiting_event_count: u64,
+    pub outcome_description_count: u64,
+    pub fishing_round_count: u64,
+    pub unlocked_skin_count: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FishingLogEntry {
     pub round_number: u64,
     pub round_started_at: Option<String>,
@@ -99,6 +129,7 @@ pub struct FishingLogEntry {
 
 pub struct SqliteStore {
     connection: Mutex<Connection>,
+    path: PathBuf,
 }
 
 impl SqliteStore {
@@ -304,13 +335,6 @@ impl SqliteStore {
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1)
                  ON CONFLICT(id) DO UPDATE SET
                      name = excluded.name,
-                     price_per_kg = excluded.price_per_kg,
-                     rarity = excluded.rarity,
-                     minimum_similarity = excluded.minimum_similarity,
-                     min_length_cm = excluded.min_length_cm,
-                     max_length_cm = excluded.max_length_cm,
-                     min_weight_kg = excluded.min_weight_kg,
-                     max_weight_kg = excluded.max_weight_kg,
                      price_source_url = excluded.price_source_url,
                      price_source_date = excluded.price_source_date",
                 params![
@@ -457,6 +481,7 @@ impl SqliteStore {
         )?;
         Ok(Self {
             connection: Mutex::new(connection),
+            path: path.to_path_buf(),
         })
     }
 
@@ -1002,6 +1027,129 @@ impl SqliteStore {
         )
     }
 
+    pub fn load_admin_fish_records(&self) -> rusqlite::Result<Vec<AdminFishRecord>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT id, name, price_per_kg, rarity,
+                    min_length_cm, max_length_cm, min_weight_kg, max_weight_kg, enabled
+             FROM fish_species
+             ORDER BY id",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok(AdminFishRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    price_per_kg: row.get(2)?,
+                    rarity: FishRarity::from_storage(&row.get::<_, String>(3)?),
+                    min_length_cm: row.get(4)?,
+                    max_length_cm: row.get(5)?,
+                    min_weight_kg: row.get(6)?,
+                    max_weight_kg: row.get(7)?,
+                    enabled: row.get::<_, i64>(8)? != 0,
+                })
+            })?
+            .collect()
+    }
+
+    pub fn load_admin_content_stats(&self) -> rusqlite::Result<AdminContentStats> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.query_row(
+            "SELECT
+                 (SELECT COUNT(*) FROM fish_species),
+                 (SELECT COUNT(*) FROM fish_species WHERE enabled = 1),
+                 (SELECT COUNT(*) FROM bait_ingredients WHERE enabled = 1),
+                 (SELECT COUNT(*) FROM waiting_event_descriptions WHERE enabled = 1),
+                 (SELECT COUNT(*) FROM outcome_descriptions WHERE enabled = 1),
+                 (SELECT COUNT(*) FROM round_results),
+                 (SELECT COUNT(*) FROM skin_unlocks)",
+            [],
+            |row| {
+                Ok(AdminContentStats {
+                    fish_count: row.get::<_, i64>(0)?.max(0) as u64,
+                    enabled_fish_count: row.get::<_, i64>(1)?.max(0) as u64,
+                    bait_ingredient_count: row.get::<_, i64>(2)?.max(0) as u64,
+                    waiting_event_count: row.get::<_, i64>(3)?.max(0) as u64,
+                    outcome_description_count: row.get::<_, i64>(4)?.max(0) as u64,
+                    fishing_round_count: row.get::<_, i64>(5)?.max(0) as u64,
+                    unlocked_skin_count: row.get::<_, i64>(6)?.max(0) as u64,
+                })
+            },
+        )
+    }
+
+    pub fn update_admin_player(
+        &self,
+        body_weight_kg: f64,
+        money: f64,
+        updated_at: &str,
+    ) -> rusqlite::Result<()> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.execute(
+            "UPDATE player_state
+             SET body_weight_kg = ?1, money = ?2, updated_at = ?3
+             WHERE id = 1",
+            params![body_weight_kg, money, updated_at],
+        )?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_admin_fish(
+        &self,
+        id: i64,
+        price_per_kg: f64,
+        rarity: FishRarity,
+        min_length_cm: f64,
+        max_length_cm: f64,
+        min_weight_kg: f64,
+        max_weight_kg: f64,
+        enabled: bool,
+    ) -> rusqlite::Result<()> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let changed = connection.execute(
+            "UPDATE fish_species
+             SET price_per_kg = ?1, rarity = ?2, minimum_similarity = ?3,
+                 min_length_cm = ?4, max_length_cm = ?5,
+                 min_weight_kg = ?6, max_weight_kg = ?7, enabled = ?8
+             WHERE id = ?9",
+            params![
+                price_per_kg,
+                rarity.storage_name(),
+                rarity.minimum_similarity(),
+                min_length_cm,
+                max_length_cm,
+                min_weight_kg,
+                max_weight_kg,
+                if enabled { 1_i64 } else { 0_i64 },
+                id,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        Ok(())
+    }
+
+    pub fn create_admin_backup(&self, file_stem: &str) -> Result<PathBuf, String> {
+        if self.path == Path::new(":memory:") {
+            return Err("内存数据库不能创建持久备份".to_owned());
+        }
+        let backup_dir = self
+            .path
+            .parent()
+            .ok_or("数据库目录不可用")?
+            .join("admin-backups");
+        fs::create_dir_all(&backup_dir).map_err(|error| error.to_string())?;
+        let backup_path = backup_dir.join(format!("{file_stem}.sqlite3"));
+        let backup_value = backup_path.to_string_lossy().into_owned();
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection
+            .execute("VACUUM INTO ?1", [backup_value])
+            .map_err(|error| error.to_string())?;
+        Ok(backup_path)
+    }
+
     pub fn load_owned_skin_ids(&self) -> rusqlite::Result<Vec<String>> {
         let connection = self.connection.lock().expect("sqlite connection poisoned");
         let mut statement =
@@ -1441,8 +1589,8 @@ mod tests {
         assert_eq!(outcome_catalog.misses.len(), 30);
         assert_eq!(outcome_catalog.features.len(), 30);
         assert_eq!(bait.name, "综合试钓饵");
-        assert_eq!(first_preferences.len(), 40);
-        assert_eq!(second_preferences.len(), 40);
+        assert_eq!(first_preferences.len(), 43);
+        assert_eq!(second_preferences.len(), 43);
         assert_eq!(
             first_preferences[0].preference,
             second_preferences[0].preference
@@ -1496,7 +1644,7 @@ mod tests {
             )
             .expect("save caught outcome");
         let records = store.load_fish_records().expect("load fish records");
-        assert_eq!(records.len(), 40);
+        assert_eq!(records.len(), 43);
         assert_eq!(records[0].rarity, FishRarity::Common);
         assert_eq!(records[23].rarity, FishRarity::Legendary);
         assert_eq!(records[0].caught_count, 1);
@@ -1694,5 +1842,51 @@ mod tests {
         assert_eq!(player.body_weight_kg, 1_000.0);
         assert_eq!(player.money, 30_000.0);
         assert!(store.is_skin_owned("bengal").expect("check reward skin"));
+    }
+
+    #[test]
+    fn admin_changes_are_backed_up_and_survive_reopening() {
+        let test_dir = std::env::temp_dir().join(format!(
+            "little-fishing-admin-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        std::fs::create_dir(&test_dir).expect("create isolated admin test directory");
+        let database_path = test_dir.join("game.sqlite3");
+        let backup_path;
+        {
+            let store = SqliteStore::open(&database_path).expect("open admin test database");
+            let initial_stats = store.load_admin_content_stats().expect("load admin stats");
+            assert_eq!(initial_stats.fish_count, 43);
+            assert_eq!(initial_stats.enabled_fish_count, 43);
+
+            backup_path = store
+                .create_admin_backup("before-edit")
+                .expect("create admin backup");
+            assert!(backup_path.exists());
+            store
+                .update_admin_player(123.45, 67_890.0, "2026-08-24T12:00:00Z")
+                .expect("update player from admin");
+            store
+                .update_admin_fish(1, 88.0, FishRarity::Epic, 9.0, 38.0, 0.1, 1.8, false)
+                .expect("update fish from admin");
+        }
+
+        {
+            let reopened = SqliteStore::open(&database_path).expect("reopen admin test database");
+            let player = reopened.load_player_summary().expect("reload admin player");
+            assert_eq!(player.body_weight_kg, 123.45);
+            assert_eq!(player.money, 67_890.0);
+            let fish = reopened.load_admin_fish_records().expect("reload admin fish");
+            assert_eq!(fish[0].price_per_kg, 88.0);
+            assert_eq!(fish[0].rarity, FishRarity::Epic);
+            assert!(!fish[0].enabled);
+        }
+
+        std::fs::remove_file(&database_path).expect("remove admin test database");
+        std::fs::remove_file(&backup_path).expect("remove admin test backup");
+        std::fs::remove_dir(backup_path.parent().expect("backup parent"))
+            .expect("remove admin backup directory");
+        std::fs::remove_dir(test_dir).expect("remove isolated admin test directory");
     }
 }

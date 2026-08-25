@@ -106,6 +106,41 @@ export interface PlayerSummary {
   soldCount: number;
 }
 
+export interface AdminFishRecord {
+  id: number;
+  name: string;
+  pricePerKg: number;
+  rarity: FishRarity;
+  minLengthCm: number;
+  maxLengthCm: number;
+  minWeightKg: number;
+  maxWeightKg: number;
+  enabled: boolean;
+}
+
+export interface AdminContentStats {
+  fishCount: number;
+  enabledFishCount: number;
+  baitIngredientCount: number;
+  waitingEventCount: number;
+  outcomeDescriptionCount: number;
+  fishingRoundCount: number;
+  unlockedSkinCount: number;
+}
+
+export interface AdminSnapshot {
+  player: PlayerSummary;
+  fish: AdminFishRecord[];
+  stats: AdminContentStats;
+}
+
+export type AdminFishInput = AdminFishRecord;
+
+export interface AdminMutationResult {
+  snapshot: AdminSnapshot;
+  backupPath: string;
+}
+
 export type CatchDisposition = "pending" | "eaten" | "sold" | "not_applicable";
 
 export interface FishingLogEntry {

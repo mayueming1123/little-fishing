@@ -1,22 +1,32 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { defaultAppSettings } from "../../domain/prototype";
+import { defaultAppSettings, type BobberSkinId } from "../../domain/prototype";
 import { usePrototypeState } from "../../hooks/usePrototypeState";
-import { getAppSettings, showBobberContextMenu, startWindowDrag, subscribeAppSettings, toggleCompactPanel } from "../../ipc/client";
+import {
+  getAppSettings,
+  showBobberContextMenu,
+  startWindowDrag,
+  subscribeAppSettings,
+  subscribeBobberSkinPreview,
+  toggleCompactPanel,
+} from "../../ipc/client";
 import { getBobberSkin } from "./skins";
 
 export function BobberView() {
   const { state } = usePrototypeState();
-  const [skinId, setSkinId] = useState(defaultAppSettings.bobberSkin);
+  const [savedSkinId, setSavedSkinId] = useState(defaultAppSettings.bobberSkin);
+  const [previewSkinId, setPreviewSkinId] = useState<BobberSkinId | null>(null);
   const pointer = useRef<{ x: number; y: number; dragged: boolean } | null>(null);
   const phase = state?.phase ?? "stopped";
-  const skin = getBobberSkin(skinId);
+  const skin = getBobberSkin(previewSkinId ?? savedSkinId);
 
   useEffect(() => {
     let active = true;
-    let unlisten: (() => void) | undefined;
-    void getAppSettings().then((settings) => { if (active) setSkinId(settings.bobberSkin); });
-    void subscribeAppSettings((settings) => setSkinId(settings.bobberSkin)).then((dispose) => { unlisten = dispose; });
-    return () => { active = false; unlisten?.(); };
+    let unlistenSettings: (() => void) | undefined;
+    let unlistenPreview: (() => void) | undefined;
+    void getAppSettings().then((settings) => { if (active) setSavedSkinId(settings.bobberSkin); });
+    void subscribeAppSettings((settings) => setSavedSkinId(settings.bobberSkin)).then((dispose) => { unlistenSettings = dispose; });
+    void subscribeBobberSkinPreview(setPreviewSkinId).then((dispose) => { unlistenPreview = dispose; });
+    return () => { active = false; unlistenSettings?.(); unlistenPreview?.(); };
   }, []);
 
   return <main className="bobber-stage">

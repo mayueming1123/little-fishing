@@ -1,12 +1,21 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultAppSettings } from "../../domain/prototype";
-import { getAppSettings, getSkinStoreState, sendPrototypeNotification, updateAppSettings } from "../../ipc/client";
+import {
+  clearBobberSkinPreview,
+  getAppSettings,
+  getSkinStoreState,
+  previewBobberSkin,
+  sendPrototypeNotification,
+  updateAppSettings,
+} from "../../ipc/client";
 import { SettingsPage } from "./SettingsPage";
 
 vi.mock("../../ipc/client", () => ({
   getAppSettings: vi.fn(),
   getSkinStoreState: vi.fn(),
+  previewBobberSkin: vi.fn(),
+  clearBobberSkinPreview: vi.fn(),
   sendPrototypeNotification: vi.fn(),
   updateAppSettings: vi.fn(),
 }));
@@ -22,6 +31,8 @@ describe("SettingsPage", () => {
       ownedSkinIds: ["orange", "gray"],
     });
     vi.mocked(updateAppSettings).mockReset().mockImplementation(async (settings) => settings);
+    vi.mocked(previewBobberSkin).mockReset().mockResolvedValue();
+    vi.mocked(clearBobberSkinPreview).mockReset().mockResolvedValue();
     vi.mocked(sendPrototypeNotification).mockReset().mockResolvedValue(false);
   });
 
@@ -33,11 +44,24 @@ describe("SettingsPage", () => {
     expect(gray.getAttribute("aria-pressed")).toBe("true");
 
     fireEvent.click(orange);
+    await waitFor(() => expect(previewBobberSkin).toHaveBeenCalledWith("orange"));
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
 
     await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith(
       expect.objectContaining({ bobberSkin: "orange" }),
     ));
+  });
+
+  it("clears an unsaved desktop preview when leaving settings", async () => {
+    const view = render(<SettingsPage />);
+    const orange = await screen.findByRole("button", { name: "橙子猫" });
+
+    fireEvent.click(orange);
+    await waitFor(() => expect(previewBobberSkin).toHaveBeenCalledWith("orange"));
+    view.unmount();
+
+    expect(clearBobberSkinPreview).toHaveBeenCalled();
+    expect(updateAppSettings).not.toHaveBeenCalled();
   });
 
   it("still shows purchased skins when reading other settings fails", async () => {

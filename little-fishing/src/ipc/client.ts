@@ -7,6 +7,9 @@ import {
   initialPrototypeState,
   defaultAppSettings,
   type AppSettings,
+  type AdminFishInput,
+  type AdminMutationResult,
+  type AdminSnapshot,
   type BaitEditorData,
   type BaitRecipeComponent,
   type BobberToastPayload,
@@ -30,8 +33,26 @@ let mockSkinStore: SkinStoreState = {
   bodyWeightKg: 60,
   ownedSkinIds: ["orange"],
 };
+let mockAdminSnapshot: AdminSnapshot = {
+  player: { bodyWeightKg: 60, money: 12800, pendingCatches: 2, eatenCount: 16, soldCount: 9 },
+  stats: {
+    fishCount: 43,
+    enabledFishCount: 43,
+    baitIngredientCount: 12,
+    waitingEventCount: 96,
+    outcomeDescriptionCount: 220,
+    fishingRoundCount: 48,
+    unlockedSkinCount: 3,
+  },
+  fish: [
+    { id: 1, name: "鲫鱼", pricePerKg: 24, rarity: "common", minLengthCm: 8, maxLengthCm: 35, minWeightKg: 0.05, maxWeightKg: 1.5, enabled: true },
+    { id: 16, name: "鳜鱼", pricePerKg: 96, rarity: "rare", minLengthCm: 18, maxLengthCm: 60, minWeightKg: 0.25, maxWeightKg: 5, enabled: true },
+    { id: 41, name: "番茄肉丸意大利面鱼", pricePerKg: 200, rarity: "special", minLengthCm: 22, maxLengthCm: 58, minWeightKg: 0.8, maxWeightKg: 6.5, enabled: true },
+  ],
+};
 const mockListeners = new Set<(state: PrototypeState) => void>();
 const mockSettingsListeners = new Set<(settings: AppSettings) => void>();
+const mockSkinPreviewListeners = new Set<(skinId: BobberSkinId | null) => void>();
 
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -90,6 +111,34 @@ export async function getPlayerSummary(): Promise<PlayerSummary> {
   return { bodyWeightKg: 60, money: 0, pendingCatches: 0, eatenCount: 0, soldCount: 0 };
 }
 
+export async function getAdminSnapshot(): Promise<AdminSnapshot> {
+  return isTauriRuntime() ? invoke<AdminSnapshot>("get_admin_snapshot") : structuredClone(mockAdminSnapshot);
+}
+
+export async function createAdminDatabaseBackup(): Promise<string> {
+  return isTauriRuntime()
+    ? invoke<string>("create_admin_database_backup")
+    : "浏览器预览不会写入数据库";
+}
+
+export async function updateAdminPlayer(bodyWeightKg: number, money: number): Promise<AdminMutationResult> {
+  if (isTauriRuntime()) return invoke<AdminMutationResult>("update_admin_player", { bodyWeightKg, money });
+  mockAdminSnapshot = {
+    ...mockAdminSnapshot,
+    player: { ...mockAdminSnapshot.player, bodyWeightKg, money },
+  };
+  return { snapshot: structuredClone(mockAdminSnapshot), backupPath: "浏览器预览不会写入数据库" };
+}
+
+export async function updateAdminFish(fish: AdminFishInput): Promise<AdminMutationResult> {
+  if (isTauriRuntime()) return invoke<AdminMutationResult>("update_admin_fish", { fish });
+  mockAdminSnapshot = {
+    ...mockAdminSnapshot,
+    fish: mockAdminSnapshot.fish.map((item) => item.id === fish.id ? fish : item),
+  };
+  return { snapshot: structuredClone(mockAdminSnapshot), backupPath: "浏览器预览不会写入数据库" };
+}
+
 export async function getSkinStoreState(): Promise<SkinStoreState> {
   return isTauriRuntime() ? invoke<SkinStoreState>("get_skin_store_state") : mockSkinStore;
 }
@@ -123,6 +172,32 @@ export async function claimWeightSkin(skinId: BobberSkinId): Promise<SkinStoreSt
   return mockSkinStore;
 }
 
+export async function previewBobberSkin(skinId: BobberSkinId): Promise<void> {
+  if (isTauriRuntime()) {
+    await invoke("preview_bobber_skin", { skinId });
+    return;
+  }
+  for (const listener of mockSkinPreviewListeners) listener(skinId);
+}
+
+export async function clearBobberSkinPreview(): Promise<void> {
+  if (isTauriRuntime()) {
+    await invoke("clear_bobber_skin_preview");
+    return;
+  }
+  for (const listener of mockSkinPreviewListeners) listener(null);
+}
+
+export async function subscribeBobberSkinPreview(
+  listener: (skinId: BobberSkinId | null) => void,
+): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) {
+    mockSkinPreviewListeners.add(listener);
+    return () => mockSkinPreviewListeners.delete(listener);
+  }
+  return listen<BobberSkinId | null>("bobber-skin-preview", (event) => listener(event.payload));
+}
+
 export async function getFishingLog(limit = 100): Promise<FishingLogEntry[]> {
   return isTauriRuntime() ? invoke<FishingLogEntry[]>("get_fishing_log", { limit }) : [];
 }
@@ -148,6 +223,10 @@ export async function updateAppSettings(settings: AppSettings): Promise<AppSetti
   mockSettings = settings;
   for (const listener of mockSettingsListeners) listener(mockSettings);
   return mockSettings;
+}
+
+export async function requestLocalAdminAccess(): Promise<void> {
+  if (isTauriRuntime()) await invoke("request_local_admin_access");
 }
 
 export async function subscribeAppSettings(listener: (settings: AppSettings) => void): Promise<UnlistenFn> {
