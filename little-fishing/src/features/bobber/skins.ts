@@ -13,6 +13,9 @@ import treasureWoodSwordCatFishing from "../../assets/cat-skin-treasure-wood-swo
 import treasureMartialManualCatFishing from "../../assets/cat-skin-treasure-martial-manual.png";
 import samoyedFishing from "../../assets/dog-skin-samoyed.png";
 import goldenRetrieverFishing from "../../assets/dog-skin-golden-retriever.png";
+import specialWaterMonsterFishing from "../../assets/skin-special-water-monster.png";
+import specialPizzaRabbitFishing from "../../assets/skin-special-pizza-rabbit.png";
+import specialSpaghettiDogFishing from "../../assets/skin-special-spaghetti-dog.png";
 import type { BobberSkinId } from "../../domain/prototype";
 
 export interface BobberSkinOption {
@@ -40,6 +43,9 @@ export const bobberSkins: BobberSkinOption[] = [
   { value: "treasure_seal", label: "公章奇遇猫", image: treasureSealCatFishing, floatX: 84.0, floatY: 81.3, inset: 12.5 },
   { value: "treasure_wood_sword", label: "木剑奇遇猫", image: treasureWoodSwordCatFishing, floatX: 84.5, floatY: 80.7, inset: 12.5 },
   { value: "treasure_martial_manual", label: "武功秘籍奇遇猫", image: treasureMartialManualCatFishing, floatX: 86.5, floatY: 80.8, inset: 12.5 },
+  { value: "special_water_monster", label: "小水怪伙伴", image: specialWaterMonsterFishing, floatX: 84.0, floatY: 82.1, inset: 12.5 },
+  { value: "special_pizza_rabbit", label: "披萨小兔", image: specialPizzaRabbitFishing, floatX: 85.0, floatY: 82.5, inset: 12.5 },
+  { value: "special_spaghetti_dog", label: "意面小狗", image: specialSpaghettiDogFishing, floatX: 85.1, floatY: 82.0, inset: 12.5 },
 ];
 
 export function getBobberSkin(value: BobberSkinId): BobberSkinOption {

@@ -27,8 +27,9 @@ describe("SettingsPage", () => {
     vi.mocked(getAppSettings).mockReset().mockResolvedValue({ ...defaultAppSettings, bobberSkin: "gray" });
     vi.mocked(getSkinStoreState).mockReset().mockResolvedValue({
       money: 0,
-      bodyWeightKg: 60,
+      poopKg: 0,
       ownedSkinIds: ["orange", "gray"],
+      ownedBuffIds: [],
     });
     vi.mocked(updateAppSettings).mockReset().mockImplementation(async (settings) => settings);
     vi.mocked(previewBobberSkin).mockReset().mockResolvedValue();

@@ -13,7 +13,7 @@ function formatDateTime(value: string | null) {
 }
 
 function dispositionText(entry: FishingLogEntry) {
-  if (entry.disposition === "eaten") return `已吃掉 · 体重 +${(entry.gainedWeightKg ?? 0).toFixed(2)} kg`;
+  if (entry.disposition === "eaten") return `已吃掉 · 产屎量 +${(entry.gainedPoopKg ?? 0).toFixed(2)} kg`;
   if (entry.disposition === "sold") return `已卖出 · 金币 +${(entry.gainedMoney ?? 0).toFixed(2)}`;
   return "等待处理";
 }
@@ -41,7 +41,7 @@ export function FishingLogPage({ revision }: { revision: number }) {
       const nextSummary = await handleCatch(entry.roundNumber, action);
       setSummary(nextSummary);
       await load();
-      setMessage(action === "eat" ? "这条鱼已经吃掉，体重变化已记录。" : "这条鱼已经卖掉，鱼价已存入钱包。");
+      setMessage(action === "eat" ? "这条鱼已经吃掉，新增产屎量已记录。" : "这条鱼已经卖掉，鱼价已存入钱包。");
     } catch (error) {
       setMessage(typeof error === "string" ? error : "鱼获处理没有完成");
     } finally {
@@ -53,7 +53,7 @@ export function FishingLogPage({ revision }: { revision: number }) {
     <div className="section-intro"><div><h2>钓鱼日志</h2><p>每一竿的等待、过程动静和最终结果都会留在这里。鱼获可以晚点处理，不会打断后台自动抛竿。</p></div><span>最近 {entries.length} 竿</span></div>
 
     <div className="player-summary-grid">
-      <article><span>当前体重</span><strong>{(summary?.bodyWeightKg ?? 60).toFixed(2)} kg</strong><small>初始体重 60 kg</small></article>
+      <article><span>累计产屎量</span><strong>{(summary?.poopKg ?? 0).toFixed(2)} kg</strong><small>吃掉鱼获后逐渐累计</small></article>
       <article><span>现有金币</span><strong>{(summary?.money ?? 0).toFixed(2)}</strong><small>可在皮肤商店使用</small></article>
       <article className={(summary?.pendingCatches ?? 0) > 0 ? "has-pending" : ""}><span>待处理鱼获</span><strong>{summary?.pendingCatches ?? 0} 条</strong><small>吃掉或按固定鱼价卖掉</small></article>
       <article><span>处理记录</span><strong>{summary?.eatenCount ?? 0} 吃 · {summary?.soldCount ?? 0} 卖</strong><small>每条鱼只能处理一次</small></article>
@@ -75,6 +75,6 @@ export function FishingLogPage({ revision }: { revision: number }) {
         {caught && <footer className="catch-disposition"><span className={`disposition ${entry.disposition}`}>{dispositionText(entry)}</span>{pending && <div><button disabled={busyRound === entry.roundNumber} onClick={() => void dispose(entry, "eat")}>吃掉</button><button disabled={busyRound === entry.roundNumber} onClick={() => void dispose(entry, "sell")}>卖掉</button></div>}</footer>}
       </article>;
     })}</div>}
-    <p className="log-rule-note">吃掉会随机增加鱼重 35%～80% 的体重，永远不会超过鱼本身重量的 80%；卖出金额采用该条鱼结算时已经固定的价值。</p>
+    <p className="log-rule-note">吃掉后会增加相当于鱼重 35%～80% 的产屎量，永远不会超过鱼本身重量的 80%；卖出金额采用该条鱼结算时已经固定的价值。</p>
   </section>;
 }

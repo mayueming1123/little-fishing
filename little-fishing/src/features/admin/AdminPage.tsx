@@ -1,20 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import type { AdminFishInput, AdminSnapshot, FishRarity } from "../../domain/prototype";
-import {
-  createAdminDatabaseBackup,
-  getAdminSnapshot,
-  updateAdminFish,
-  updateAdminPlayer,
-} from "../../ipc/client";
+import { useEffect, useState } from "react";
+import type { AdminSnapshot, FishRarity } from "../../domain/prototype";
+import { getAdminSnapshot, updateAdminMoney } from "../../ipc/client";
 
-const rarityOptions: { value: FishRarity; label: string }[] = [
-  { value: "common", label: "普通" },
-  { value: "uncommon", label: "少见" },
-  { value: "rare", label: "稀有" },
-  { value: "epic", label: "史诗" },
-  { value: "legendary", label: "传说" },
-  { value: "special", label: "特殊" },
-];
+const rarityLabels: Record<FishRarity, string> = {
+  common: "普通", uncommon: "少见", rare: "稀有", epic: "史诗", legendary: "传说", special: "特殊",
+};
+const preferenceLabels = [
+  ["intensity", "浓"], ["color", "色"], ["sweet", "甜"], ["sour", "酸"], ["salty", "咸"],
+] as const;
 
 function errorMessage(error: unknown): string {
   if (typeof error === "string") return error;
@@ -22,28 +15,25 @@ function errorMessage(error: unknown): string {
   return "操作失败，请稍后重试";
 }
 
-function formatBackupMessage(path: string): string {
-  return path.startsWith("浏览器") ? path : `已自动备份到：${path}`;
+function formatProbability(value: number): string {
+  if (value <= 0) return "0%";
+  const percentage = value * 100;
+  return percentage < 0.01 ? `${percentage.toFixed(4)}%` : `${percentage.toFixed(2)}%`;
 }
 
-export function AdminPage() {
+export function AdminPage({ onClose }: { onClose: () => void }) {
   const [snapshot, setSnapshot] = useState<AdminSnapshot | null>(null);
-  const [fishDrafts, setFishDrafts] = useState<AdminFishInput[]>([]);
   const [money, setMoney] = useState(0);
-  const [bodyWeightKg, setBodyWeightKg] = useState(60);
-  const [message, setMessage] = useState("正在读取本机数据库……");
+  const [message, setMessage] = useState("正在读取本机数据……");
   const [busy, setBusy] = useState(false);
-  const [busyFishId, setBusyFishId] = useState<number | null>(null);
 
   async function refresh() {
     setBusy(true);
     try {
       const next = await getAdminSnapshot();
       setSnapshot(next);
-      setFishDrafts(next.fish);
       setMoney(next.player.money);
-      setBodyWeightKg(next.player.bodyWeightKg);
-      setMessage("已读取本机数据");
+      setMessage("概率已按当前鱼饵和今天的鱼类属性重新计算");
     } catch (error) {
       setMessage(errorMessage(error));
     } finally {
@@ -53,17 +43,16 @@ export function AdminPage() {
 
   useEffect(() => { void refresh(); }, []);
 
-  const eventTextCount = useMemo(
-    () => snapshot ? snapshot.stats.waitingEventCount + snapshot.stats.outcomeDescriptionCount : 0,
-    [snapshot],
-  );
-
-  async function savePlayer() {
+  async function saveMoney() {
+    if (!Number.isFinite(money) || money < 0) {
+      setMessage("金币必须是大于或等于 0 的数字");
+      return;
+    }
     setBusy(true);
     try {
-      const result = await updateAdminPlayer(bodyWeightKg, money);
+      const result = await updateAdminMoney(money);
       setSnapshot(result.snapshot);
-      setMessage(`玩家数据已保存。${formatBackupMessage(result.backupPath)}`);
+      setMessage("金币已保存，修改前的数据已自动备份");
     } catch (error) {
       setMessage(errorMessage(error));
     } finally {
@@ -71,104 +60,33 @@ export function AdminPage() {
     }
   }
 
-  async function backup() {
-    setBusy(true);
-    try {
-      const path = await createAdminDatabaseBackup();
-      setMessage(`备份完成。${formatBackupMessage(path)}`);
-    } catch (error) {
-      setMessage(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function changeFish(id: number, patch: Partial<AdminFishInput>) {
-    setFishDrafts((items) => items.map((item) => item.id === id ? { ...item, ...patch } : item));
-  }
-
-  async function saveFish(fish: AdminFishInput) {
-    setBusyFishId(fish.id);
-    try {
-      const result = await updateAdminFish(fish);
-      setSnapshot(result.snapshot);
-      setFishDrafts(result.snapshot.fish);
-      setMessage(`${fish.name}的参数已保存。${formatBackupMessage(result.backupPath)}`);
-    } catch (error) {
-      setMessage(errorMessage(error));
-    } finally {
-      setBusyFishId(null);
-    }
-  }
-
-  return (
-    <main className="admin-shell">
-      <header className="admin-header">
-        <div>
-          <p className="eyebrow">LOCAL CONTROL ROOM</p>
-          <div className="admin-title-line">
-            <h1>小小钓鱼 · 管理后台</h1>
-            <span className="admin-local-badge">仅本机</span>
-          </div>
-          <p className="subtitle">不启动网络服务，不开放局域网端口；所有操作直接作用于这台电脑上的游戏数据库。</p>
-        </div>
-        <div className="admin-header-actions">
-          <button className="quiet-button" type="button" onClick={() => void refresh()} disabled={busy}>刷新</button>
-          <button className="primary-button" type="button" onClick={() => void backup()} disabled={busy}>立即备份数据库</button>
-        </div>
-      </header>
-
-      <p className="admin-message" role="status">{message}</p>
-
-      {snapshot && (
-        <>
-          <section className="admin-stat-grid" aria-label="内容统计">
-            <article><strong>{snapshot.stats.enabledFishCount}/{snapshot.stats.fishCount}</strong><span>启用鱼种</span></article>
-            <article><strong>{snapshot.stats.baitIngredientCount}</strong><span>饵料原料</span></article>
-            <article><strong>{eventTextCount}</strong><span>事件与结果描述</span></article>
-            <article><strong>{snapshot.stats.fishingRoundCount}</strong><span>已结算轮次</span></article>
-            <article><strong>{snapshot.stats.unlockedSkinCount}</strong><span>已拥有皮肤</span></article>
-          </section>
-
-          <section className="admin-card admin-player-card">
-            <div>
-              <p className="eyebrow">PLAYER DATA</p>
-              <h2>玩家数据</h2>
-              <p>鱼篓待处理 {snapshot.player.pendingCatches} 条 · 吃掉 {snapshot.player.eatenCount} 条 · 卖出 {snapshot.player.soldCount} 条</p>
-            </div>
-            <label>当前体重（kg）<input type="number" min="0" step="0.01" value={bodyWeightKg} onChange={(event) => setBodyWeightKg(event.currentTarget.valueAsNumber)} /></label>
-            <label>金币<input type="number" min="0" step="1" value={money} onChange={(event) => setMoney(event.currentTarget.valueAsNumber)} /></label>
-            <button className="primary-button" type="button" onClick={() => void savePlayer()} disabled={busy}>保存玩家数据</button>
-          </section>
-
-          <section className="admin-card admin-fish-card">
-            <div className="admin-section-heading">
-              <div><p className="eyebrow">FISH CATALOG</p><h2>鱼类参数</h2></div>
-              <p>最低饵料相似度随稀有度自动计算，不在后台或玩家界面公开。</p>
-            </div>
-            <div className="admin-table-wrap">
-              <table className="admin-table">
-                <thead><tr><th>鱼种</th><th>稀有度</th><th>元/kg</th><th>长度最小</th><th>长度最大</th><th>重量最小</th><th>重量最大</th><th>启用</th><th>操作</th></tr></thead>
-                <tbody>
-                  {fishDrafts.map((fish) => (
-                    <tr key={fish.id}>
-                      <td><span className="admin-fish-id">#{fish.id}</span><strong>{fish.name}</strong></td>
-                      <td><select value={fish.rarity} onChange={(event) => changeFish(fish.id, { rarity: event.currentTarget.value as FishRarity })}>{rarityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></td>
-                      <td><input aria-label={`${fish.name}价格`} type="number" min="0" step="0.01" value={fish.pricePerKg} onChange={(event) => changeFish(fish.id, { pricePerKg: event.currentTarget.valueAsNumber })} /></td>
-                      <td><input aria-label={`${fish.name}最小长度`} type="number" min="0" step="0.01" value={fish.minLengthCm} onChange={(event) => changeFish(fish.id, { minLengthCm: event.currentTarget.valueAsNumber })} /></td>
-                      <td><input aria-label={`${fish.name}最大长度`} type="number" min="0" step="0.01" value={fish.maxLengthCm} onChange={(event) => changeFish(fish.id, { maxLengthCm: event.currentTarget.valueAsNumber })} /></td>
-                      <td><input aria-label={`${fish.name}最小重量`} type="number" min="0" step="0.01" value={fish.minWeightKg} onChange={(event) => changeFish(fish.id, { minWeightKg: event.currentTarget.valueAsNumber })} /></td>
-                      <td><input aria-label={`${fish.name}最大重量`} type="number" min="0" step="0.01" value={fish.maxWeightKg} onChange={(event) => changeFish(fish.id, { maxWeightKg: event.currentTarget.valueAsNumber })} /></td>
-                      <td><input aria-label={`${fish.name}启用`} type="checkbox" checked={fish.enabled} onChange={(event) => changeFish(fish.id, { enabled: event.currentTarget.checked })} /></td>
-                      <td><button className="admin-save-row" type="button" disabled={busyFishId === fish.id} onClick={() => void saveFish(fish)}>{busyFishId === fish.id ? "保存中" : "保存"}</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      )}
-    </main>
-  );
+  return <main className="admin-shell">
+    <header className="admin-header">
+      <div><p className="eyebrow">LOCAL FISH VIEW</p><div className="admin-title-line"><h1>小小钓鱼 · 简易管理模式</h1><span className="admin-local-badge">仅本机</span></div><p className="subtitle">只查看今日鱼类概率与隐藏属性，并允许修改金币。</p></div>
+      <div className="admin-header-actions"><button className="quiet-button" type="button" onClick={onClose}>返回游戏</button><button className="quiet-button" type="button" onClick={() => void refresh()} disabled={busy}>刷新概率</button></div>
+    </header>
+    <p className="admin-message" role="status">{message}</p>
+    {snapshot && <>
+      <section className="admin-card admin-money-card">
+        <div><p className="eyebrow">PLAYER MONEY</p><h2>金币</h2><p>这里只修改金币，保存前仍会自动备份本机数据库。</p></div>
+        <label>当前金币<input aria-label="金币" type="number" min="0" step="1" value={money} onChange={(event) => setMoney(event.currentTarget.valueAsNumber)} /></label>
+        <button className="primary-button" type="button" onClick={() => void saveMoney()} disabled={busy}>保存金币</button>
+      </section>
+      <section className="admin-card admin-fish-card">
+        <div className="admin-section-heading"><div><p className="eyebrow">TODAY'S FISH ODDS</p><h2>鱼类爆率与属性</h2></div><p>日期 {snapshot.preferenceDate} · 当前鱼饵「{snapshot.baitName}」。爆率表示按当前鱼饵完成一整轮后，最终钓到该鱼的实际概率。</p></div>
+        <div className="admin-table-wrap"><table className="admin-table admin-odds-table">
+          <thead><tr><th>鱼种</th><th>稀有度</th><th>单轮爆率</th><th>当前匹配</th><th>最低匹配</th><th>今日五维属性</th><th>价格</th><th>长度</th><th>重量</th><th>状态</th></tr></thead>
+          <tbody>{snapshot.fish.map((fish) => <tr key={fish.id}>
+            <td><span className="admin-fish-id">#{fish.id}</span><strong>{fish.name}</strong></td>
+            <td><span className={`rarity-badge rarity-${fish.rarity}`}>{rarityLabels[fish.rarity]}</span></td>
+            <td><strong className="admin-probability">{formatProbability(fish.catchProbability)}</strong></td>
+            <td>{(fish.similarity * 100).toFixed(1)}%</td>
+            <td>{fish.rarity === "special" ? "特殊判定" : `${(fish.minimumSimilarity * 100).toFixed(0)}%`}</td>
+            <td><div className="admin-flavor-grid">{preferenceLabels.map(([key, label]) => <span key={key}><b>{label}</b>{fish.preference[key].toFixed(2)}</span>)}</div></td>
+            <td>{fish.pricePerKg.toFixed(2)} /kg</td><td>{fish.minLengthCm.toFixed(1)}–{fish.maxLengthCm.toFixed(1)} cm</td><td>{fish.minWeightKg.toFixed(2)}–{fish.maxWeightKg.toFixed(2)} kg</td><td>{fish.enabled ? "启用" : "停用"}</td>
+          </tr>)}</tbody>
+        </table></div>
+      </section>
+    </>}
+  </main>;
 }

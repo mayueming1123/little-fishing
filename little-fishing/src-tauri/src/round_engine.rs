@@ -326,6 +326,12 @@ pub fn sample_duration_seconds<R: Rng + ?Sized>(rng: &mut R) -> i64 {
     rng.random_range(first_tick..=last_tick) * 30
 }
 
+pub fn apply_duration_multiplier(duration_seconds: i64, multiplier: f64) -> i64 {
+    let scaled_ticks =
+        ((duration_seconds.max(30) as f64 * multiplier.clamp(0.1, 1.0)) / 30.0).round() as i64;
+    (scaled_ticks * 30).clamp(30, 7_200)
+}
+
 fn event_count(duration_seconds: i64) -> usize {
     match duration_seconds {
         0..=59 => 0,
@@ -395,8 +401,10 @@ pub fn generate_round_plan<R: Rng + ?Sized>(
     started_at: DateTime<Utc>,
     rng: &mut R,
     catalog: &EventCatalog,
+    duration_multiplier: f64,
 ) -> RoundPlan {
-    let duration_seconds = sample_duration_seconds(rng);
+    let duration_seconds =
+        apply_duration_multiplier(sample_duration_seconds(rng), duration_multiplier);
     let status_text = catalog
         .status
         .choose(rng)
@@ -462,7 +470,7 @@ mod tests {
         let catalog = EventCatalog::seeded();
 
         for _ in 0..2_000 {
-            let plan = generate_round_plan(started_at, &mut rng, &catalog);
+            let plan = generate_round_plan(started_at, &mut rng, &catalog, 1.0);
             assert!((30..=7_200).contains(&plan.duration_seconds));
             assert_eq!(plan.duration_seconds % 30, 0);
             for event in plan.waiting_events {
@@ -473,6 +481,27 @@ mod tests {
                 );
                 assert_eq!((event.scheduled_at - started_at).num_seconds() % 30, 0);
             }
+        }
+    }
+
+    #[test]
+    fn duration_buff_shortens_rounds_by_thirty_percent_and_keeps_tick_precision() {
+        assert_eq!(apply_duration_multiplier(600, 0.70), 420);
+        assert_eq!(apply_duration_multiplier(450, 0.70), 330);
+        assert_eq!(apply_duration_multiplier(30, 0.70), 30);
+
+        let started_at = DateTime::parse_from_rfc3339("2026-08-18T08:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut rng = StdRng::seed_from_u64(30);
+        let catalog = EventCatalog::seeded();
+        for _ in 0..500 {
+            let plan = generate_round_plan(started_at, &mut rng, &catalog, 0.70);
+            assert!((30..=5_040).contains(&plan.duration_seconds));
+            assert_eq!(plan.duration_seconds % 30, 0);
+            assert!(plan.waiting_events.iter().all(|event| {
+                event.scheduled_at < started_at + ChronoDuration::seconds(plan.duration_seconds)
+            }));
         }
     }
 

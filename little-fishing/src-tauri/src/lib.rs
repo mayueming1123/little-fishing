@@ -5,18 +5,18 @@ mod round_engine;
 use chrono::{DateTime, Duration as ChronoDuration, Local, SecondsFormat, Utc};
 use fishing_rules::{
     BaitIngredientInfo, FishRecord, FlavorVector, OutcomeTextCatalog, TreasureRecord,
-    resolve_round,
+    fish_catch_chances, resolve_round,
 };
 use persistence::{
-    AdminContentStats, AdminFishRecord, FishingLogEntry, PersistedRoundState, PlayerSummary,
-    SqliteStore, StoredAppSettings,
+    AdminFishRecord, FishingLogEntry, PersistedRoundState, PlayerSummary, SqliteStore,
+    StoredAppSettings,
 };
 use rand::Rng;
 use round_engine::{EventCatalog, WaitingEvent, generate_round_plan};
 use serde::{Deserialize, Serialize};
 use std::sync::{
     Mutex,
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
 };
 use std::thread;
 use std::time::Duration;
@@ -24,22 +24,26 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
 };
+#[cfg(target_os = "macos")]
+use tauri::RunEvent;
 use tauri::{
     AppHandle, Emitter, Manager, WebviewWindow, WindowEvent,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
-#[cfg(target_os = "macos")]
-use tauri::RunEvent;
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 
 const STATE_EVENT: &str = "prototype-state-changed";
 const SETTINGS_EVENT: &str = "app-settings-changed";
-const TOAST_EVENT: &str = "bobber-toast";
+const BOBBER_ALERT_EVENT: &str = "bobber-alert";
+const MAIN_NAVIGATE_EVENT: &str = "main-navigate";
 const SKIN_PREVIEW_EVENT: &str = "bobber-skin-preview";
 const OWNER_ADMIN_KEY_HASH: u64 = 0xfb80_ee4d_7bb6_6105;
 const ACHIEVEMENT_SKIN_ID: &str = "bengal";
-const ACHIEVEMENT_WEIGHT_KG: f64 = 1_000.0;
+const ACHIEVEMENT_POOP_KG: f64 = 1_000.0;
+const SHORTER_ROUNDS_BUFF_ID: &str = "shorter_rounds_30";
+const SHORTER_ROUNDS_BUFF_PRICE: f64 = 30_000.0;
+const SHORTER_ROUNDS_MULTIPLIER: f64 = 0.70;
 
 fn shop_skin_price(value: &str) -> Option<f64> {
     match value {
@@ -69,6 +73,9 @@ fn is_known_skin_id(value: &str) -> bool {
             | "treasure_seal"
             | "treasure_wood_sword"
             | "treasure_martial_manual"
+            | "special_water_monster"
+            | "special_pizza_rabbit"
+            | "special_spaghetti_dog"
     )
 }
 
@@ -190,7 +197,12 @@ impl PrototypeRoundState {
         }
     }
 
-    fn settle_after_relaunch(&mut self, now: DateTime<Utc>, catalog: &EventCatalog) {
+    fn settle_after_relaunch(
+        &mut self,
+        now: DateTime<Utc>,
+        catalog: &EventCatalog,
+        duration_multiplier: f64,
+    ) {
         if self.phase == FishingPhase::Stopped {
             self.is_fishing = false;
             self.round_started_at = None;
@@ -205,7 +217,7 @@ impl PrototypeRoundState {
         self.last_result =
             Some("重新回来时，上一竿刚好有了结果；离线期间只结算这一轮。".to_owned());
         if self.is_fishing && !self.stop_after_settlement {
-            self.schedule_round(now, catalog);
+            self.schedule_round(now, catalog, duration_multiplier);
         } else {
             self.phase = FishingPhase::Stopped;
             self.is_fishing = false;
@@ -240,20 +252,25 @@ impl PrototypeRoundState {
         }
     }
 
-    fn start(&mut self, now: DateTime<Utc>, catalog: &EventCatalog) {
+    fn start(&mut self, now: DateTime<Utc>, catalog: &EventCatalog, duration_multiplier: f64) {
         if self.phase != FishingPhase::Stopped {
             return;
         }
         self.phase = FishingPhase::Waiting;
         self.is_fishing = true;
         self.stop_after_settlement = false;
-        self.schedule_round(now, catalog);
+        self.schedule_round(now, catalog, duration_multiplier);
         self.state_revision += 1;
     }
 
-    fn schedule_round(&mut self, now: DateTime<Utc>, catalog: &EventCatalog) {
+    fn schedule_round(
+        &mut self,
+        now: DateTime<Utc>,
+        catalog: &EventCatalog,
+        duration_multiplier: f64,
+    ) {
         let mut rng = rand::rng();
-        let plan = generate_round_plan(now, &mut rng, catalog);
+        let plan = generate_round_plan(now, &mut rng, catalog, duration_multiplier);
         self.phase = FishingPhase::Waiting;
         self.is_fishing = true;
         self.stop_after_settlement = false;
@@ -418,38 +435,21 @@ struct AdminAccessState {
 }
 
 #[derive(Default)]
-struct ToastState {
-    sequence: AtomicU64,
-    latest: Mutex<Option<BobberToastPayload>>,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BobberToastPayload {
-    title: String,
-    body: String,
-    kind: BobberToastKind,
-    count: u64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum BobberToastKind {
-    Event,
-    Catch,
+struct BobberAlertState {
+    pending: AtomicBool,
 }
 
 struct ResolvedRound {
     summary: String,
-    caught: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SkinStoreState {
     money: f64,
-    body_weight_kg: f64,
+    poop_kg: f64,
     owned_skin_ids: Vec<String>,
+    owned_buff_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -457,20 +457,8 @@ struct SkinStoreState {
 struct AdminSnapshot {
     player: PlayerSummary,
     fish: Vec<AdminFishRecord>,
-    stats: AdminContentStats,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AdminFishInput {
-    id: i64,
-    price_per_kg: f64,
-    rarity: fishing_rules::FishRarity,
-    min_length_cm: f64,
-    max_length_cm: f64,
-    min_weight_kg: f64,
-    max_weight_kg: f64,
-    enabled: bool,
+    bait_name: String,
+    preference_date: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -487,17 +475,36 @@ fn load_skin_store_state(store: &SqliteStore) -> Result<SkinStoreState, String> 
     let owned_skin_ids = store
         .load_owned_skin_ids()
         .map_err(|error| error.to_string())?;
+    let owned_buff_ids = store
+        .load_owned_upgrade_ids()
+        .map_err(|error| error.to_string())?;
     Ok(SkinStoreState {
         money: player.money,
-        body_weight_kg: player.body_weight_kg,
+        poop_kg: player.poop_kg,
         owned_skin_ids,
+        owned_buff_ids,
     })
 }
 
+fn round_duration_multiplier(store: &SqliteStore) -> f64 {
+    if store
+        .is_upgrade_owned(SHORTER_ROUNDS_BUFF_ID)
+        .unwrap_or(false)
+    {
+        SHORTER_ROUNDS_MULTIPLIER
+    } else {
+        1.0
+    }
+}
+
 fn owner_key_hash(value: &str) -> u64 {
-    value.trim().as_bytes().iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
-        (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
-    })
+    value
+        .trim()
+        .as_bytes()
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
 }
 
 fn ensure_admin_access(app: &AppHandle) -> Result<(), String> {
@@ -509,23 +516,52 @@ fn ensure_admin_access(app: &AppHandle) -> Result<(), String> {
 
 fn ensure_admin_window(window: &WebviewWindow, app: &AppHandle) -> Result<(), String> {
     ensure_admin_access(app)?;
-    if window.label() != "admin" {
-        return Err("管理接口只允许本机管理窗口调用".to_owned());
+    if window.label() != "main" {
+        return Err("管理接口只允许本机主窗口调用".to_owned());
     }
     Ok(())
 }
 
-fn load_admin_snapshot(store: &SqliteStore) -> Result<AdminSnapshot, String> {
+fn load_admin_snapshot(app: &AppHandle) -> Result<AdminSnapshot, String> {
+    let persistence = app.state::<PersistenceState>();
+    let local_date = Local::now().date_naive().to_string();
+    persistence
+        .store
+        .ensure_daily_preferences(&local_date, &mut rand::rng())
+        .map_err(|error| error.to_string())?;
+    let recipe_id = app
+        .state::<PrototypeAppState>()
+        .0
+        .lock()
+        .expect("prototype state poisoned")
+        .selected_recipe_id;
+    let bait = persistence
+        .store
+        .load_bait_profile(recipe_id.min(i64::MAX as u64) as i64)
+        .map_err(|error| error.to_string())?;
+    let profiles = persistence
+        .store
+        .load_fish_profiles(&local_date)
+        .map_err(|error| error.to_string())?;
+    let chances = fish_catch_chances(&bait, &profiles);
+    let mut fish = persistence
+        .store
+        .load_admin_fish_records(&local_date)
+        .map_err(|error| error.to_string())?;
+    for record in &mut fish {
+        if let Some(chance) = chances.iter().find(|chance| chance.fish_id == record.id) {
+            record.similarity = chance.similarity;
+            record.catch_probability = chance.probability;
+        }
+    }
     Ok(AdminSnapshot {
-        player: store
+        player: persistence
+            .store
             .load_player_summary()
             .map_err(|error| error.to_string())?,
-        fish: store
-            .load_admin_fish_records()
-            .map_err(|error| error.to_string())?,
-        stats: store
-            .load_admin_content_stats()
-            .map_err(|error| error.to_string())?,
+        fish,
+        bait_name: bait.name,
+        preference_date: local_date,
     })
 }
 
@@ -586,7 +622,6 @@ fn resolve_with_store(
         .load_fish_profiles(&local_date)
         .map_err(|error| error.to_string())?;
     let outcome = resolve_round(&bait, &fish, outcome_text_catalog, &mut rng);
-    let caught = matches!(&outcome, fishing_rules::RoundOutcome::Caught { .. });
     let settled_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
     let round_started_at =
         round_started_at.map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true));
@@ -604,7 +639,6 @@ fn resolve_with_store(
         .map_err(|error| error.to_string())?;
     Ok(ResolvedRound {
         summary: outcome.summary(),
-        caught,
     })
 }
 
@@ -639,97 +673,7 @@ fn show_main(app: &AppHandle) {
     }
 }
 
-fn show_admin(app: &AppHandle) -> Result<(), String> {
-    ensure_admin_access(app)?;
-    if let Some(panel) = app.get_webview_window("panel") {
-        let _ = panel.hide();
-    }
-    let window = if let Some(window) = app.get_webview_window("admin") {
-        window
-    } else {
-        tauri::WebviewWindowBuilder::new(
-            app,
-            "admin",
-            tauri::WebviewUrl::App("index.html".into()),
-        )
-        .title("小小钓鱼 · 本机管理后台")
-        .inner_size(1180.0, 780.0)
-        .min_inner_size(980.0, 640.0)
-        .center()
-        .visible(false)
-        .build()
-        .map_err(|error| error.to_string())?
-    };
-    window.unminimize().map_err(|error| error.to_string())?;
-    window.show().map_err(|error| error.to_string())?;
-    window.set_focus().map_err(|error| error.to_string())
-}
-
-fn toast_position(
-    kind: BobberToastKind,
-    anchor_position: tauri::PhysicalPosition<i32>,
-    anchor_size: tauri::PhysicalSize<u32>,
-    toast_size: tauri::PhysicalSize<u32>,
-    monitor_position: tauri::PhysicalPosition<i32>,
-    monitor_size: tauri::PhysicalSize<u32>,
-) -> tauri::PhysicalPosition<i32> {
-    let monitor_right = monitor_position.x.saturating_add(monitor_size.width as i32);
-    let monitor_bottom = monitor_position
-        .y
-        .saturating_add(monitor_size.height as i32);
-    let toast_width = toast_size.width as i32;
-    let toast_height = toast_size.height as i32;
-    let preferred_x = match kind {
-        BobberToastKind::Event => anchor_position.x.saturating_sub(toast_width).saturating_add(22),
-        BobberToastKind::Catch => anchor_position
-            .x
-            .saturating_add(anchor_size.width as i32)
-            .saturating_sub(22),
-    };
-    let x = preferred_x.clamp(
-        monitor_position.x,
-        monitor_right.saturating_sub(toast_width),
-    );
-    let preferred_y = anchor_position.y.saturating_sub(toast_height).saturating_add(26);
-    let y = preferred_y.clamp(
-        monitor_position.y,
-        monitor_bottom.saturating_sub(toast_height),
-    );
-    tauri::PhysicalPosition::new(x, y)
-}
-
-fn place_toast_near_bobber(app: &AppHandle, kind: BobberToastKind) {
-    let (Some(bobber), Some(toast)) = (
-        app.get_webview_window("bobber"),
-        app.get_webview_window("toast"),
-    ) else {
-        return;
-    };
-    let (Ok(anchor_position), Ok(anchor_size), Ok(toast_size), Ok(Some(monitor))) = (
-        bobber.outer_position(),
-        bobber.outer_size(),
-        toast.outer_size(),
-        bobber.current_monitor(),
-    ) else {
-        return;
-    };
-    let position = toast_position(
-        kind,
-        anchor_position,
-        anchor_size,
-        toast_size,
-        *monitor.position(),
-        *monitor.size(),
-    );
-    let _ = toast.set_position(position);
-}
-
-fn send_interactive_notification(
-    app: &AppHandle,
-    kind: BobberToastKind,
-    title: &str,
-    body: &str,
-) -> Result<(), String> {
+fn show_bobber_alert(app: &AppHandle) -> Result<(), String> {
     if !app
         .state::<SettingsState>()
         .0
@@ -739,54 +683,29 @@ fn send_interactive_notification(
     {
         return Ok(());
     }
-    let toast = app
-        .get_webview_window("toast")
-        .ok_or("toast window not found")?;
-    let toast_state = app.state::<ToastState>();
-    let sequence = toast_state
-        .sequence
-        .fetch_add(1, Ordering::SeqCst)
-        .saturating_add(1);
-    let payload = {
-        let mut latest = toast_state
-            .latest
-            .lock()
-            .expect("toast state poisoned");
-        let count = latest.as_ref().map_or(1, |message| message.count.saturating_add(1));
-        let payload = BobberToastPayload {
-            title: title.to_owned(),
-            body: body.to_owned(),
-            kind,
-            count,
-        };
-        *latest = Some(payload.clone());
-        payload
-    };
-    toast
-        .set_always_on_top(true)
+    app.state::<BobberAlertState>()
+        .pending
+        .store(true, Ordering::SeqCst);
+    app.get_webview_window("bobber")
+        .ok_or("bobber window not found")?
+        .emit(BOBBER_ALERT_EVENT, true)
         .map_err(|error| error.to_string())?;
-    place_toast_near_bobber(app, kind);
-    toast.show().map_err(|error| error.to_string())?;
-    toast
-        .emit(TOAST_EVENT, payload)
-        .map_err(|error| error.to_string())?;
-    let app = app.clone();
-    thread::spawn(move || {
-        thread::sleep(Duration::from_secs(8));
-        if app.state::<ToastState>().sequence.load(Ordering::SeqCst) == sequence
-            && let Some(toast) = app.get_webview_window("toast")
-        {
-            let _ = toast.hide();
-            *app.state::<ToastState>()
-                .latest
-                .lock()
-                .expect("toast state poisoned") = None;
-        }
-    });
     Ok(())
 }
 
+fn clear_bobber_alert(app: &AppHandle) {
+    app.state::<BobberAlertState>()
+        .pending
+        .store(false, Ordering::SeqCst);
+    if let Some(bobber) = app.get_webview_window("bobber") {
+        let _ = bobber.emit(BOBBER_ALERT_EVENT, false);
+    }
+}
+
 fn apply_window_settings(app: &AppHandle, settings: &AppSettings) {
+    if !settings.notifications_enabled {
+        clear_bobber_alert(app);
+    }
     if let Some(bobber) = app.get_webview_window("bobber") {
         let _ = bobber.set_always_on_top(settings.bobber_always_on_top);
         if settings.bobber_visible {
@@ -799,12 +718,6 @@ fn apply_window_settings(app: &AppHandle, settings: &AppSettings) {
         let _ = panel.set_always_on_top(settings.bobber_always_on_top);
         if !settings.bobber_visible {
             let _ = panel.hide();
-        }
-    }
-    if let Some(toast) = app.get_webview_window("toast") {
-        let _ = toast.set_always_on_top(settings.bobber_always_on_top);
-        if !settings.bobber_visible {
-            let _ = toast.hide();
         }
     }
 }
@@ -860,7 +773,11 @@ fn toggle_fishing(app: &AppHandle) -> PrototypeSnapshot {
         if state.is_fishing {
             state.stop();
         } else {
-            state.start(Utc::now(), &persistence.event_catalog);
+            state.start(
+                Utc::now(),
+                &persistence.event_catalog,
+                round_duration_multiplier(&persistence.store),
+            );
         }
         save_state(app, &state);
         state.snapshot()
@@ -896,6 +813,53 @@ fn handle_menu_action(app: &AppHandle, id: &str) {
     }
 }
 
+fn position_panel_near_bobber(app: &AppHandle) {
+    let (Some(bobber), Some(panel)) = (
+        app.get_webview_window("bobber"),
+        app.get_webview_window("panel"),
+    ) else {
+        return;
+    };
+    let (Ok(position), Ok(size), Ok(panel_size), Ok(Some(monitor))) = (
+        bobber.outer_position(),
+        bobber.outer_size(),
+        panel.outer_size(),
+        bobber.current_monitor(),
+    ) else {
+        return;
+    };
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let monitor_right = monitor_position.x.saturating_add(monitor_size.width as i32);
+    let monitor_bottom = monitor_position
+        .y
+        .saturating_add(monitor_size.height as i32);
+    let panel_width = panel_size.width as i32;
+    let panel_height = panel_size.height as i32;
+    let preferred_left = position.x.saturating_sub(panel_width.saturating_add(12));
+    let preferred_x = if preferred_left >= monitor_position.x {
+        preferred_left
+    } else {
+        position
+            .x
+            .saturating_add(size.width as i32)
+            .saturating_add(12)
+    };
+    let panel_x = preferred_x.clamp(
+        monitor_position.x,
+        monitor_right.saturating_sub(panel_width),
+    );
+    let centered_y = position
+        .y
+        .saturating_add(size.height as i32 / 2)
+        .saturating_sub(panel_height / 2);
+    let panel_y = centered_y.clamp(
+        monitor_position.y,
+        monitor_bottom.saturating_sub(panel_height),
+    );
+    let _ = panel.set_position(tauri::PhysicalPosition::new(panel_x, panel_y));
+}
+
 fn toggle_panel(app: &AppHandle) -> Result<(), String> {
     let panel = app
         .get_webview_window("panel")
@@ -903,45 +867,7 @@ fn toggle_panel(app: &AppHandle) -> Result<(), String> {
     if panel.is_visible().map_err(|error| error.to_string())? {
         panel.hide().map_err(|error| error.to_string())?;
     } else {
-        if let Some(bobber) = app.get_webview_window("bobber") {
-            if let (Ok(position), Ok(size), Ok(panel_size), Ok(Some(monitor))) = (
-                bobber.outer_position(),
-                bobber.outer_size(),
-                panel.outer_size(),
-                bobber.current_monitor(),
-            ) {
-                let monitor_position = monitor.position();
-                let monitor_size = monitor.size();
-                let monitor_right = monitor_position.x.saturating_add(monitor_size.width as i32);
-                let monitor_bottom = monitor_position
-                    .y
-                    .saturating_add(monitor_size.height as i32);
-                let panel_width = panel_size.width as i32;
-                let panel_height = panel_size.height as i32;
-                let preferred_left = position.x.saturating_sub(panel_width.saturating_add(12));
-                let preferred_x = if preferred_left >= monitor_position.x {
-                    preferred_left
-                } else {
-                    position
-                        .x
-                        .saturating_add(size.width as i32)
-                        .saturating_add(12)
-                };
-                let panel_x = preferred_x.clamp(
-                    monitor_position.x,
-                    monitor_right.saturating_sub(panel_width),
-                );
-                let centered_y = position
-                    .y
-                    .saturating_add(size.height as i32 / 2)
-                    .saturating_sub(panel_height / 2);
-                let panel_y = centered_y.clamp(
-                    monitor_position.y,
-                    monitor_bottom.saturating_sub(panel_height),
-                );
-                let _ = panel.set_position(tauri::PhysicalPosition::new(panel_x, panel_y));
-            }
-        }
+        position_panel_near_bobber(app);
         panel.show().map_err(|error| error.to_string())?;
     }
     Ok(())
@@ -1001,16 +927,6 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-fn waiting_event_notification_title(category: &str) -> &'static str {
-    match category {
-        "water" => "小小钓鱼 · 浮标有动静",
-        "tackle" => "小小钓鱼 · 钓组出了点状况",
-        "wildlife" => "小小钓鱼 · 岸边来客",
-        "story" => "小小钓鱼 · 一点小插曲",
-        _ => "小小钓鱼 · 岸边有动静",
-    }
-}
-
 fn spawn_scheduler(app: AppHandle) {
     thread::spawn(move || {
         loop {
@@ -1034,14 +950,9 @@ fn spawn_scheduler(app: AppHandle) {
                     (None, None)
                 }
             };
-            if let Some(event) = waiting_event {
-                if let Err(error) = send_interactive_notification(
-                    &app,
-                    BobberToastKind::Event,
-                    waiting_event_notification_title(&event.category),
-                    &event.description,
-                ) {
-                    eprintln!("failed to show waiting event bubble: {error}");
+            if waiting_event.is_some() {
+                if let Err(error) = show_bobber_alert(&app) {
+                    eprintln!("failed to show waiting event alert: {error}");
                 }
                 continue;
             }
@@ -1069,25 +980,10 @@ fn spawn_scheduler(app: AppHandle) {
                 eprintln!("failed to resolve fishing round: {error}");
                 ResolvedRound {
                     summary: "这一竿到了结算时间，但记录结果时出了点小问题。".to_owned(),
-                    caught: false,
                 }
             });
-            let toast_kind = if resolved.caught {
-                BobberToastKind::Catch
-            } else {
-                BobberToastKind::Event
-            };
-            if let Err(error) = send_interactive_notification(
-                &app,
-                toast_kind,
-                if resolved.caught {
-                    "小小钓鱼 · 中鱼了"
-                } else {
-                    "小小钓鱼 · 本竿动静"
-                },
-                &resolved.summary,
-            ) {
-                eprintln!("failed to show round result bubble: {error}");
+            if let Err(error) = show_bobber_alert(&app) {
+                eprintln!("failed to show round result alert: {error}");
             }
             let completed = {
                 let persistence = app.state::<PersistenceState>();
@@ -1098,7 +994,11 @@ fn spawn_scheduler(app: AppHandle) {
                 }
                 state.last_result = Some(resolved.summary);
                 if state.is_fishing && !state.stop_after_settlement {
-                    state.schedule_round(Utc::now(), &persistence.event_catalog);
+                    state.schedule_round(
+                        Utc::now(),
+                        &persistence.event_catalog,
+                        round_duration_multiplier(&persistence.store),
+                    );
                 } else {
                     state.phase = FishingPhase::Stopped;
                     state.is_fishing = false;
@@ -1129,7 +1029,11 @@ fn start_fishing(app: AppHandle) -> PrototypeSnapshot {
         let persistence = app.state::<PersistenceState>();
         let state = app.state::<PrototypeAppState>();
         let mut state = state.0.lock().expect("prototype state poisoned");
-        state.start(Utc::now(), &persistence.event_catalog);
+        state.start(
+            Utc::now(),
+            &persistence.event_catalog,
+            round_duration_multiplier(&persistence.store),
+        );
         save_state(&app, &state);
         state.snapshot()
     };
@@ -1255,29 +1159,16 @@ fn get_player_summary(app: AppHandle) -> Result<PlayerSummary, String> {
 #[tauri::command]
 fn get_admin_snapshot(window: WebviewWindow, app: AppHandle) -> Result<AdminSnapshot, String> {
     ensure_admin_window(&window, &app)?;
-    load_admin_snapshot(&app.state::<PersistenceState>().store)
+    load_admin_snapshot(&app)
 }
 
 #[tauri::command]
-fn create_admin_database_backup(
+fn update_admin_money(
     window: WebviewWindow,
     app: AppHandle,
-) -> Result<String, String> {
-    ensure_admin_window(&window, &app)?;
-    create_admin_backup(&app.state::<PersistenceState>().store)
-}
-
-#[tauri::command]
-fn update_admin_player(
-    window: WebviewWindow,
-    app: AppHandle,
-    body_weight_kg: f64,
     money: f64,
 ) -> Result<AdminMutationResult, String> {
     ensure_admin_window(&window, &app)?;
-    if !body_weight_kg.is_finite() || !(0.0..=1_000_000.0).contains(&body_weight_kg) {
-        return Err("体重必须是 0～1,000,000 kg 之间的有限数值".to_owned());
-    }
     if !money.is_finite() || !(0.0..=1_000_000_000_000.0).contains(&money) {
         return Err("金币必须是 0～1,000,000,000,000 之间的有限数值".to_owned());
     }
@@ -1285,58 +1176,13 @@ fn update_admin_player(
     let backup_path = create_admin_backup(&persistence.store)?;
     persistence
         .store
-        .update_admin_player(
-            body_weight_kg,
+        .update_admin_money(
             money,
             &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         )
         .map_err(|error| error.to_string())?;
     Ok(AdminMutationResult {
-        snapshot: load_admin_snapshot(&persistence.store)?,
-        backup_path,
-    })
-}
-
-#[tauri::command]
-fn update_admin_fish(
-    window: WebviewWindow,
-    app: AppHandle,
-    fish: AdminFishInput,
-) -> Result<AdminMutationResult, String> {
-    ensure_admin_window(&window, &app)?;
-    let values = [
-        fish.price_per_kg,
-        fish.min_length_cm,
-        fish.max_length_cm,
-        fish.min_weight_kg,
-        fish.max_weight_kg,
-    ];
-    if fish.id <= 0 || values.iter().any(|value| !value.is_finite() || *value <= 0.0) {
-        return Err("鱼类价格、长度和重量必须填写大于 0 的有限数值".to_owned());
-    }
-    if fish.price_per_kg > 1_000_000_000.0 {
-        return Err("鱼价不能超过 1,000,000,000 元/kg".to_owned());
-    }
-    if fish.min_length_cm >= fish.max_length_cm || fish.min_weight_kg >= fish.max_weight_kg {
-        return Err("最大长度和最大重量必须分别大于最小值".to_owned());
-    }
-    let persistence = app.state::<PersistenceState>();
-    let backup_path = create_admin_backup(&persistence.store)?;
-    persistence
-        .store
-        .update_admin_fish(
-            fish.id,
-            fish.price_per_kg,
-            fish.rarity,
-            fish.min_length_cm,
-            fish.max_length_cm,
-            fish.min_weight_kg,
-            fish.max_weight_kg,
-            fish.enabled,
-        )
-        .map_err(|error| error.to_string())?;
-    Ok(AdminMutationResult {
-        snapshot: load_admin_snapshot(&persistence.store)?,
+        snapshot: load_admin_snapshot(&app)?,
         backup_path,
     })
 }
@@ -1373,30 +1219,61 @@ fn purchase_skin(app: AppHandle, skin_id: String) -> Result<SkinStoreState, Stri
 }
 
 #[tauri::command]
-fn claim_weight_skin(app: AppHandle, skin_id: String) -> Result<SkinStoreState, String> {
+fn purchase_store_buff(app: AppHandle, buff_id: String) -> Result<SkinStoreState, String> {
+    if buff_id != SHORTER_ROUNDS_BUFF_ID {
+        return Err("未知的商店 Buff".to_owned());
+    }
+    let persistence = app.state::<PersistenceState>();
+    let current = load_skin_store_state(&persistence.store)?;
+    if current.owned_buff_ids.iter().any(|owned| owned == &buff_id) {
+        return Err("这个 Buff 已经永久生效".to_owned());
+    }
+    if current.money < SHORTER_ROUNDS_BUFF_PRICE {
+        return Err(format!(
+            "金币不足，还差 {:.0} 金币",
+            SHORTER_ROUNDS_BUFF_PRICE - current.money
+        ));
+    }
+    persistence
+        .store
+        .purchase_upgrade(
+            &buff_id,
+            SHORTER_ROUNDS_BUFF_PRICE,
+            &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => "金币不足，购买没有完成".to_owned(),
+            rusqlite::Error::InvalidQuery => "这个 Buff 已经永久生效".to_owned(),
+            _ => error.to_string(),
+        })?;
+    load_skin_store_state(&persistence.store)
+}
+
+#[tauri::command]
+fn claim_poop_skin(app: AppHandle, skin_id: String) -> Result<SkinStoreState, String> {
     if skin_id != ACHIEVEMENT_SKIN_ID {
-        return Err("这款皮肤不是体重成就奖励".to_owned());
+        return Err("这款皮肤不是产屎量成就奖励".to_owned());
     }
     let persistence = app.state::<PersistenceState>();
     let current = load_skin_store_state(&persistence.store)?;
     if current.owned_skin_ids.iter().any(|owned| owned == &skin_id) {
         return Err("这款皮肤已经拥有".to_owned());
     }
-    if current.body_weight_kg < ACHIEVEMENT_WEIGHT_KG {
+    if current.poop_kg < ACHIEVEMENT_POOP_KG {
         return Err(format!(
-            "体重尚未达标，还差 {:.1} kg",
-            ACHIEVEMENT_WEIGHT_KG - current.body_weight_kg
+            "累计产屎量尚未达标，还差 {:.1} kg",
+            ACHIEVEMENT_POOP_KG - current.poop_kg
         ));
     }
     persistence
         .store
-        .claim_weight_skin(
+        .claim_poop_skin(
             &skin_id,
-            ACHIEVEMENT_WEIGHT_KG,
+            ACHIEVEMENT_POOP_KG,
             &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         )
         .map_err(|error| match error {
-            rusqlite::Error::QueryReturnedNoRows => "体重尚未达到 1000 kg".to_owned(),
+            rusqlite::Error::QueryReturnedNoRows => "累计产屎量尚未达到 1000 kg".to_owned(),
             rusqlite::Error::InvalidQuery => "这款皮肤已经拥有".to_owned(),
             _ => error.to_string(),
         })?;
@@ -1507,9 +1384,7 @@ fn update_app_settings(app: AppHandle, mut settings: AppSettings) -> Result<AppS
         .lock()
         .expect("settings state poisoned")
         .autostart_enabled;
-    let autostart_enabled = autostart
-        .is_enabled()
-        .unwrap_or(cached_autostart_enabled);
+    let autostart_enabled = autostart.is_enabled().unwrap_or(cached_autostart_enabled);
     if settings.autostart_enabled != autostart_enabled {
         if settings.autostart_enabled {
             autostart.enable().map_err(|error| error.to_string())?;
@@ -1517,9 +1392,7 @@ fn update_app_settings(app: AppHandle, mut settings: AppSettings) -> Result<AppS
             autostart.disable().map_err(|error| error.to_string())?;
         }
     }
-    settings.autostart_enabled = autostart
-        .is_enabled()
-        .unwrap_or(settings.autostart_enabled);
+    settings.autostart_enabled = autostart.is_enabled().unwrap_or(settings.autostart_enabled);
     app.state::<PersistenceState>()
         .store
         .save_app_settings(
@@ -1541,7 +1414,7 @@ fn request_local_admin_access(window: WebviewWindow, app: AppHandle) -> Result<(
     if window.label() != "main" {
         return Err("管理入口只接受主窗口操作".to_owned());
     }
-    show_admin(&app)
+    ensure_admin_access(&app)
 }
 
 #[tauri::command]
@@ -1567,36 +1440,23 @@ fn request_app_exit(app: AppHandle) {
 
 #[tauri::command]
 fn send_test_notification(app: AppHandle) -> Result<(), String> {
-    send_interactive_notification(
-        &app,
-        BobberToastKind::Event,
-        "小小钓鱼",
-        "测试提示已送达，点击可以打开主窗口。",
-    )
+    show_bobber_alert(&app)
 }
 
 #[tauri::command]
-fn get_pending_bobber_toast(app: AppHandle) -> Option<BobberToastPayload> {
-    app.state::<ToastState>()
-        .latest
-        .lock()
-        .expect("toast state poisoned")
-        .clone()
+fn get_pending_bobber_alert(app: AppHandle) -> bool {
+    app.state::<BobberAlertState>()
+        .pending
+        .load(Ordering::SeqCst)
 }
 
 #[tauri::command]
-fn activate_bobber_toast(app: AppHandle) {
-    app.state::<ToastState>()
-        .sequence
-        .fetch_add(1, Ordering::SeqCst);
-    *app.state::<ToastState>()
-        .latest
-        .lock()
-        .expect("toast state poisoned") = None;
-    if let Some(toast) = app.get_webview_window("toast") {
-        let _ = toast.hide();
-    }
+fn activate_bobber_alert(app: AppHandle) {
+    clear_bobber_alert(&app);
     show_main(&app);
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.emit(MAIN_NAVIGATE_EVENT, "fishing");
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1612,7 +1472,7 @@ pub fn run() {
         .manage(PrototypeAppState::default())
         .manage(SettingsState::default())
         .manage(LifecycleState::default())
-        .manage(ToastState::default())
+        .manage(BobberAlertState::default())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             eprintln!("using app data directory: {}", app_data_dir.display());
@@ -1678,7 +1538,11 @@ pub fn run() {
                     } else {
                         None
                     };
-                    state.settle_after_relaunch(Utc::now(), &event_catalog);
+                    state.settle_after_relaunch(
+                        Utc::now(),
+                        &event_catalog,
+                        round_duration_multiplier(&store),
+                    );
                     if let Some(offline_result) = offline_result {
                         state.last_result = Some(offline_result);
                     }
@@ -1727,6 +1591,9 @@ pub fn run() {
         })
         .on_menu_event(|app, event| handle_menu_action(app, event.id().as_ref()))
         .on_window_event(|window, event| {
+            if window.label() == "bobber" && matches!(event, WindowEvent::Moved(_)) {
+                position_panel_near_bobber(window.app_handle());
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let quitting = window
                     .state::<LifecycleState>()
@@ -1748,12 +1615,11 @@ pub fn run() {
             get_treasure_records,
             get_player_summary,
             get_admin_snapshot,
-            create_admin_database_backup,
-            update_admin_player,
-            update_admin_fish,
+            update_admin_money,
             get_skin_store_state,
             purchase_skin,
-            claim_weight_skin,
+            purchase_store_buff,
+            claim_poop_skin,
             preview_bobber_skin,
             clear_bobber_skin_preview,
             get_fishing_log,
@@ -1767,8 +1633,8 @@ pub fn run() {
             show_bobber_context_menu,
             request_app_exit,
             send_test_notification,
-            get_pending_bobber_toast,
-            activate_bobber_toast,
+            get_pending_bobber_alert,
+            activate_bobber_alert,
         ])
         .build(tauri::generate_context!())
         .expect("error while building little-fishing");
@@ -1799,6 +1665,9 @@ mod tests {
         assert_eq!(shop_skin_price("treasure_pearl"), None);
         assert!(is_known_skin_id("treasure_pearl"));
         assert!(is_known_skin_id("treasure_martial_manual"));
+        assert!(is_known_skin_id("special_water_monster"));
+        assert!(is_known_skin_id("special_pizza_rabbit"));
+        assert!(is_known_skin_id("special_spaghetti_dog"));
         assert!(is_known_skin_id("samoyed"));
         assert!(is_known_skin_id("golden_retriever"));
     }
@@ -1810,41 +1679,13 @@ mod tests {
     }
 
     #[test]
-    fn toast_is_placed_next_to_the_bobber_without_leaving_the_monitor() {
-        let monitor_position = tauri::PhysicalPosition::new(0, 0);
-        let monitor_size = tauri::PhysicalSize::new(1_920, 1_080);
-        let bobber_size = tauri::PhysicalSize::new(108, 108);
-        let toast_size = tauri::PhysicalSize::new(220, 84);
-
-        let event_bubble = toast_position(
-            BobberToastKind::Event,
-            tauri::PhysicalPosition::new(800, 300),
-            bobber_size,
-            toast_size,
-            monitor_position,
-            monitor_size,
-        );
-        assert_eq!(event_bubble, tauri::PhysicalPosition::new(602, 242));
-
-        let catch_bubble = toast_position(
-            BobberToastKind::Catch,
-            tauri::PhysicalPosition::new(800, 300),
-            bobber_size,
-            toast_size,
-            monitor_position,
-            monitor_size,
-        );
-        assert_eq!(catch_bubble, tauri::PhysicalPosition::new(886, 242));
-
-        let clamped = toast_position(
-            BobberToastKind::Catch,
-            tauri::PhysicalPosition::new(1_880, 10),
-            bobber_size,
-            toast_size,
-            monitor_position,
-            monitor_size,
-        );
-        assert_eq!(clamped, tauri::PhysicalPosition::new(1_700, 0));
+    fn bobber_alert_stays_pending_until_activated() {
+        let alert = BobberAlertState::default();
+        assert!(!alert.pending.load(Ordering::SeqCst));
+        alert.pending.store(true, Ordering::SeqCst);
+        assert!(alert.pending.load(Ordering::SeqCst));
+        alert.pending.store(false, Ordering::SeqCst);
+        assert!(!alert.pending.load(Ordering::SeqCst));
     }
 
     #[test]
@@ -1871,7 +1712,7 @@ mod tests {
         };
 
         let catalog = EventCatalog::seeded();
-        state.settle_after_relaunch(now, &catalog);
+        state.settle_after_relaunch(now, &catalog, 1.0);
 
         assert_eq!(state.phase, FishingPhase::Waiting);
         assert!(state.is_fishing);

@@ -104,6 +104,10 @@ const TREASURE_ROLL_SCALE: u16 = 10_000;
 const TREASURE_WINNING_ROLLS: u16 = 30;
 const SPECIAL_FISH_ROLL_SCALE: u8 = 100;
 const SPECIAL_FISH_WINNING_ROLLS: u8 = 5;
+const MIN_CATCH_PROBABILITY: f64 = 0.10;
+const MAX_CATCH_PROBABILITY: f64 = 0.70;
+const RARITY_READINESS_FLOOR: f64 = 0.20;
+const FISH_FIT_WEIGHT_FLOOR: f64 = 0.20;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -217,6 +221,7 @@ pub struct BaitProfile {
 pub struct BaitIngredientInfo {
     pub id: i64,
     pub name: String,
+    pub flavor: FlavorVector,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -254,6 +259,13 @@ pub struct FishProfile {
     pub min_weight_kg: f64,
     pub max_weight_kg: f64,
     pub preference: FlavorVector,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct FishCatchChance {
+    pub fish_id: i64,
+    pub similarity: f64,
+    pub probability: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -838,7 +850,7 @@ pub fn fish_species_seeds() -> Vec<FishSpeciesSeed> {
         FishSpeciesSeed {
             id: 41,
             name: "番茄肉丸意大利面鱼",
-            price_per_kg: 200.0,
+            price_per_kg: 1_000.0,
             min_length_cm: 28.0,
             max_length_cm: 70.0,
             min_weight_kg: 0.8,
@@ -849,7 +861,7 @@ pub fn fish_species_seeds() -> Vec<FishSpeciesSeed> {
         FishSpeciesSeed {
             id: 42,
             name: "披萨鱼",
-            price_per_kg: 200.0,
+            price_per_kg: 1_000.0,
             min_length_cm: 22.0,
             max_length_cm: 55.0,
             min_weight_kg: 0.4,
@@ -860,7 +872,7 @@ pub fn fish_species_seeds() -> Vec<FishSpeciesSeed> {
         FishSpeciesSeed {
             id: 43,
             name: "小水怪",
-            price_per_kg: 200.0,
+            price_per_kg: 1_000.0,
             min_length_cm: 55.0,
             max_length_cm: 140.0,
             min_weight_kg: 3.0,
@@ -1137,6 +1149,72 @@ pub fn bait_ingredient_seeds() -> Vec<BaitIngredientSeed> {
                 salty: 0.05,
             },
         },
+        BaitIngredientSeed {
+            id: 25,
+            name: "平衡底粉",
+            flavor: FlavorVector {
+                intensity: 0.08,
+                color: 0.08,
+                sweet: 0.0,
+                sour: 0.0,
+                salty: 0.0,
+            },
+        },
+        BaitIngredientSeed {
+            id: 26,
+            name: "素色面筋",
+            flavor: FlavorVector {
+                intensity: 0.20,
+                color: 0.0,
+                sweet: 0.16,
+                sour: 0.0,
+                salty: 0.0,
+            },
+        },
+        BaitIngredientSeed {
+            id: 27,
+            name: "无色甜粉",
+            flavor: FlavorVector {
+                intensity: 0.22,
+                color: 0.0,
+                sweet: 0.90,
+                sour: 0.0,
+                salty: 0.0,
+            },
+        },
+        BaitIngredientSeed {
+            id: 28,
+            name: "无色果酸",
+            flavor: FlavorVector {
+                intensity: 0.30,
+                color: 0.0,
+                sweet: 0.0,
+                sour: 0.90,
+                salty: 0.0,
+            },
+        },
+        BaitIngredientSeed {
+            id: 29,
+            name: "纯盐晶",
+            flavor: FlavorVector {
+                intensity: 0.35,
+                color: 0.0,
+                sweet: 0.0,
+                sour: 0.0,
+                salty: 0.90,
+            },
+        },
+        BaitIngredientSeed {
+            id: 30,
+            name: "亮色米粉",
+            flavor: FlavorVector {
+                intensity: 0.0,
+                color: 0.90,
+                sweet: 0.10,
+                sour: 0.0,
+                salty: 0.0,
+            },
+        },
     ]
 }
 
@@ -1165,6 +1243,122 @@ fn special_fish_feature(fish_id: i64) -> Option<&'static str> {
         43 => Some("它有三道软乎乎的背峰和一双水蓝色小鳍，离水后还在好奇地眨眼。"),
         _ => None,
     }
+}
+
+fn catch_candidates<'a>(
+    bait: &BaitProfile,
+    fish: &'a [FishProfile],
+) -> Vec<(&'a FishProfile, f64, f64, f64)> {
+    let mut candidates: Vec<(&FishProfile, f64, f64, f64)> = fish
+        .iter()
+        .filter(|profile| profile.rarity != FishRarity::Special)
+        .map(|profile| {
+            let similarity = bait_similarity(bait.flavor, profile.preference);
+            let threshold = profile.minimum_similarity;
+            let fit_progress =
+                ((similarity - threshold) / (1.0 - threshold).max(f64::EPSILON)).clamp(0.0, 1.0);
+            let weight =
+                FISH_FIT_WEIGHT_FLOOR + (1.0 - FISH_FIT_WEIGHT_FLOOR) * fit_progress.powi(2);
+            (profile, similarity, weight, fit_progress)
+        })
+        .filter(|(profile, similarity, _, _)| *similarity >= profile.minimum_similarity)
+        .collect();
+    candidates.sort_by(|left, right| right.1.total_cmp(&left.1));
+    candidates
+}
+
+fn rarity_draw_weight(rarity: FishRarity) -> f64 {
+    match rarity {
+        FishRarity::Common => 38.0,
+        FishRarity::Uncommon => 25.0,
+        FishRarity::Rare => 17.0,
+        FishRarity::Epic => 12.0,
+        FishRarity::Legendary => 8.0,
+        FishRarity::Special => 0.0,
+    }
+}
+
+fn candidate_draw_weights(candidates: &[(&FishProfile, f64, f64, f64)]) -> Vec<f64> {
+    candidates
+        .iter()
+        .map(|candidate| {
+            let rarity = candidate.0.rarity;
+            let best_tier_fit = candidates
+                .iter()
+                .filter(|other| other.0.rarity == rarity)
+                .map(|other| other.3)
+                .max_by(f64::total_cmp)
+                .unwrap_or(0.0);
+            let tier_score = rarity_draw_weight(rarity)
+                * (RARITY_READINESS_FLOOR + (1.0 - RARITY_READINESS_FLOOR) * best_tier_fit);
+            let tier_fish_weight: f64 = candidates
+                .iter()
+                .filter(|other| other.0.rarity == rarity)
+                .map(|other| other.2)
+                .sum();
+
+            tier_score * candidate.2 / tier_fish_weight.max(f64::EPSILON)
+        })
+        .collect()
+}
+
+fn current_catch_probability(candidates: &[(&FishProfile, f64, f64, f64)]) -> f64 {
+    let best_fit_progress = candidates
+        .iter()
+        .map(|candidate| candidate.3)
+        .max_by(f64::total_cmp)
+        .unwrap_or(0.0);
+    (MIN_CATCH_PROBABILITY + best_fit_progress * (MAX_CATCH_PROBABILITY - MIN_CATCH_PROBABILITY))
+        .clamp(MIN_CATCH_PROBABILITY, MAX_CATCH_PROBABILITY)
+}
+
+pub fn fish_catch_chances(bait: &BaitProfile, fish: &[FishProfile]) -> Vec<FishCatchChance> {
+    let candidates = catch_candidates(bait, fish);
+    let mut chances: Vec<FishCatchChance> = fish
+        .iter()
+        .map(|profile| FishCatchChance {
+            fish_id: profile.id,
+            similarity: bait_similarity(bait.flavor, profile.preference),
+            probability: 0.0,
+        })
+        .collect();
+    if candidates.is_empty() {
+        return chances;
+    }
+
+    let catch_probability = current_catch_probability(&candidates);
+    let special_count = fish
+        .iter()
+        .filter(|profile| profile.rarity == FishRarity::Special)
+        .count();
+    let normal_probability = catch_probability
+        * if special_count > 0 {
+            1.0 - f64::from(SPECIAL_FISH_WINNING_ROLLS) / f64::from(SPECIAL_FISH_ROLL_SCALE)
+        } else {
+            1.0
+        };
+    let draw_weights = candidate_draw_weights(&candidates);
+    let total_weight: f64 = draw_weights.iter().sum();
+
+    for chance in &mut chances {
+        if let Some((index, _candidate)) = candidates
+            .iter()
+            .enumerate()
+            .find(|(_, candidate)| candidate.0.id == chance.fish_id)
+        {
+            chance.probability =
+                normal_probability * draw_weights[index] / total_weight.max(f64::EPSILON);
+        } else if special_count > 0
+            && fish.iter().any(|profile| {
+                profile.id == chance.fish_id && profile.rarity == FishRarity::Special
+            })
+        {
+            chance.probability = catch_probability * f64::from(SPECIAL_FISH_WINNING_ROLLS)
+                / f64::from(SPECIAL_FISH_ROLL_SCALE)
+                / special_count as f64;
+        }
+    }
+    chances
 }
 
 fn roll_legendary_treasure<R: Rng + ?Sized>(
@@ -1199,20 +1393,7 @@ pub fn resolve_round<R: Rng + ?Sized>(
         .map(|profile| bait_similarity(bait.flavor, profile.preference))
         .max_by(f64::total_cmp)
         .unwrap_or(0.0);
-    let mut candidates: Vec<(&FishProfile, f64, f64, f64)> = fish
-        .iter()
-        .filter(|profile| profile.rarity != FishRarity::Special)
-        .map(|profile| {
-            let similarity = bait_similarity(bait.flavor, profile.preference);
-            let threshold = profile.minimum_similarity;
-            let fit_progress =
-                ((similarity - threshold) / (1.0 - threshold).max(f64::EPSILON)).clamp(0.0, 1.0);
-            let weight = 0.01 + fit_progress.powi(2);
-            (profile, similarity, weight, fit_progress)
-        })
-        .filter(|(profile, similarity, _, _)| *similarity >= profile.minimum_similarity)
-        .collect();
-    candidates.sort_by(|left, right| right.1.total_cmp(&left.1));
+    let candidates = catch_candidates(bait, fish);
 
     if candidates.is_empty() {
         if let Some(treasure) = roll_legendary_treasure(best_similarity, rng) {
@@ -1225,12 +1406,7 @@ pub fn resolve_round<R: Rng + ?Sized>(
         };
     }
 
-    let best_fit_progress = candidates
-        .iter()
-        .map(|candidate| candidate.3)
-        .max_by(f64::total_cmp)
-        .unwrap_or(0.0);
-    let catch_probability = (0.08 + best_fit_progress * 0.47).clamp(0.08, 0.55);
+    let catch_probability = current_catch_probability(&candidates);
     if !rng.random_bool(catch_probability) {
         if let Some(treasure) = roll_legendary_treasure(best_similarity, rng) {
             return treasure;
@@ -1258,15 +1434,16 @@ pub fn resolve_round<R: Rng + ?Sized>(
             .expect("special fish pool is not empty");
         (*profile, bait_similarity(bait.flavor, profile.preference))
     } else {
-        let total_weight: f64 = candidates.iter().map(|candidate| candidate.2).sum();
+        let draw_weights = candidate_draw_weights(&candidates);
+        let total_weight: f64 = draw_weights.iter().sum();
         let mut target = rng.random_range(0.0..total_weight.max(f64::EPSILON));
         let mut selected = candidates[0];
-        for candidate in &candidates {
+        for (candidate, draw_weight) in candidates.iter().zip(draw_weights) {
             selected = *candidate;
-            if target <= candidate.2 {
+            if target <= draw_weight {
                 break;
             }
-            target -= candidate.2;
+            target -= draw_weight;
         }
         (selected.0, selected.1)
     };
@@ -1371,7 +1548,88 @@ mod tests {
         assert_eq!(FishRarity::from_price(150.0), FishRarity::Legendary);
         assert_eq!(FishRarity::Common.minimum_similarity(), 0.40);
         assert_eq!(FishRarity::Legendary.minimum_similarity(), 0.90);
-        assert_eq!(FishRarity::for_species(41, 200.0), FishRarity::Special);
+        assert_eq!(FishRarity::for_species(41, 1_000.0), FishRarity::Special);
+    }
+
+    #[test]
+    fn admin_catch_chances_match_the_live_selection_rules() {
+        let regular = FishProfile {
+            id: 1,
+            name: "普通测试鱼".to_owned(),
+            price_per_kg: 10.0,
+            rarity: FishRarity::Common,
+            minimum_similarity: 0.4,
+            min_length_cm: 10.0,
+            max_length_cm: 20.0,
+            min_weight_kg: 0.1,
+            max_weight_kg: 0.5,
+            preference: vector(0.4),
+        };
+        let special = FishProfile {
+            id: 41,
+            name: "特殊测试鱼".to_owned(),
+            rarity: FishRarity::Special,
+            ..regular.clone()
+        };
+        let bait = BaitProfile {
+            name: "测试饵".to_owned(),
+            flavor: vector(0.4),
+        };
+
+        let chances = fish_catch_chances(&bait, &[regular, special]);
+        let regular_probability = chances
+            .iter()
+            .find(|chance| chance.fish_id == 1)
+            .expect("regular chance")
+            .probability;
+        let special_probability = chances
+            .iter()
+            .find(|chance| chance.fish_id == 41)
+            .expect("special chance")
+            .probability;
+
+        assert!((regular_probability - 0.665).abs() < 0.000_001);
+        assert!((special_probability - 0.035).abs() < 0.000_001);
+        assert!((regular_probability + special_probability - 0.70).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn rarity_is_selected_before_species_count_can_crowd_out_legendary_fish() {
+        let make_fish = |id, rarity: FishRarity| FishProfile {
+            id,
+            name: format!("{rarity:?}测试鱼"),
+            price_per_kg: 10.0,
+            rarity,
+            minimum_similarity: rarity.minimum_similarity(),
+            min_length_cm: 10.0,
+            max_length_cm: 20.0,
+            min_weight_kg: 0.1,
+            max_weight_kg: 0.5,
+            preference: vector(0.10),
+        };
+        let fish = vec![
+            make_fish(1, FishRarity::Common),
+            make_fish(2, FishRarity::Uncommon),
+            make_fish(3, FishRarity::Rare),
+            make_fish(4, FishRarity::Epic),
+            make_fish(5, FishRarity::Legendary),
+            make_fish(41, FishRarity::Special),
+        ];
+        let bait = BaitProfile {
+            name: "九成匹配测试饵".to_owned(),
+            flavor: vector(0.0),
+        };
+
+        let chances = fish_catch_chances(&bait, &fish);
+        let legendary_probability = chances
+            .iter()
+            .find(|chance| chance.fish_id == 5)
+            .expect("legendary chance")
+            .probability;
+        let total_probability: f64 = chances.iter().map(|chance| chance.probability).sum();
+
+        assert!(legendary_probability > 0.01);
+        assert!((total_probability - 0.60).abs() < 0.000_001);
     }
 
     #[test]
@@ -1379,7 +1637,7 @@ mod tests {
         let make_fish = |preference| FishProfile {
             id: 1,
             name: "传说测试鱼".to_owned(),
-            price_per_kg: 200.0,
+            price_per_kg: 1_000.0,
             rarity: FishRarity::Legendary,
             minimum_similarity: FishRarity::Legendary.minimum_similarity(),
             min_length_cm: 10.0,
@@ -1460,12 +1718,13 @@ mod tests {
             .filter(|roll| special_fish_roll_succeeds(*roll))
             .count();
         assert_eq!(winning_rolls, 5);
-        assert_eq!(
-            fish_species_seeds()
-                .into_iter()
-                .filter(|fish| FishRarity::for_species(fish.id, fish.price_per_kg) == FishRarity::Special)
-                .count(),
-            3
-        );
+        let special_fish: Vec<FishSpeciesSeed> = fish_species_seeds()
+            .into_iter()
+            .filter(|fish| {
+                FishRarity::for_species(fish.id, fish.price_per_kg) == FishRarity::Special
+            })
+            .collect();
+        assert_eq!(special_fish.len(), 3);
+        assert!(special_fish.iter().all(|fish| fish.price_per_kg == 1_000.0));
     }
 }

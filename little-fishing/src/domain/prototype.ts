@@ -63,6 +63,15 @@ export function createMockWaitingState(previous: PrototypeState, now = Date.now(
 export interface BaitIngredient {
   id: number;
   name: string;
+  flavor: BaitFlavorVector;
+}
+
+export interface BaitFlavorVector {
+  intensity: number;
+  color: number;
+  sweet: number;
+  sour: number;
+  salty: number;
 }
 
 export interface BaitRecipeComponent {
@@ -99,7 +108,7 @@ export interface TreasureRecord {
 }
 
 export interface PlayerSummary {
-  bodyWeightKg: number;
+  poopKg: number;
   money: number;
   pendingCatches: number;
   eatenCount: number;
@@ -111,30 +120,29 @@ export interface AdminFishRecord {
   name: string;
   pricePerKg: number;
   rarity: FishRarity;
+  minimumSimilarity: number;
   minLengthCm: number;
   maxLengthCm: number;
   minWeightKg: number;
   maxWeightKg: number;
+  preference: {
+    intensity: number;
+    color: number;
+    sweet: number;
+    sour: number;
+    salty: number;
+  };
+  similarity: number;
+  catchProbability: number;
   enabled: boolean;
-}
-
-export interface AdminContentStats {
-  fishCount: number;
-  enabledFishCount: number;
-  baitIngredientCount: number;
-  waitingEventCount: number;
-  outcomeDescriptionCount: number;
-  fishingRoundCount: number;
-  unlockedSkinCount: number;
 }
 
 export interface AdminSnapshot {
   player: PlayerSummary;
   fish: AdminFishRecord[];
-  stats: AdminContentStats;
+  baitName: string;
+  preferenceDate: string;
 }
-
-export type AdminFishInput = AdminFishRecord;
 
 export interface AdminMutationResult {
   snapshot: AdminSnapshot;
@@ -160,24 +168,20 @@ export interface FishingLogEntry {
   description: string;
   disposition: CatchDisposition;
   dispositionAt: string | null;
-  gainedWeightKg: number | null;
+  gainedPoopKg: number | null;
   gainedMoney: number | null;
 }
 
-export interface BobberToastPayload {
-  title: string;
-  body: string;
-  kind: "event" | "catch";
-  count: number;
-}
+export type MainSection = "fishing" | "basket" | "log" | "fish" | "bait" | "store" | "settings";
 
 export type AppTheme = "system" | "light" | "dark";
-export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal" | "samoyed" | "golden_retriever" | "treasure_pearl" | "treasure_crystal_shoe" | "treasure_seal" | "treasure_wood_sword" | "treasure_martial_manual";
+export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal" | "samoyed" | "golden_retriever" | "treasure_pearl" | "treasure_crystal_shoe" | "treasure_seal" | "treasure_wood_sword" | "treasure_martial_manual" | "special_water_monster" | "special_pizza_rabbit" | "special_spaghetti_dog";
 
 export interface SkinStoreState {
   money: number;
-  bodyWeightKg: number;
+  poopKg: number;
   ownedSkinIds: BobberSkinId[];
+  ownedBuffIds: string[];
 }
 
 export interface AppSettings {

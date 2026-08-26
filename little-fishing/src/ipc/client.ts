@@ -7,17 +7,16 @@ import {
   initialPrototypeState,
   defaultAppSettings,
   type AppSettings,
-  type AdminFishInput,
   type AdminMutationResult,
   type AdminSnapshot,
   type BaitEditorData,
   type BaitRecipeComponent,
-  type BobberToastPayload,
   type FishRecord,
   type TreasureRecord,
   type FishingLogEntry,
   type PlayerSummary,
   type PrototypeState,
+  type MainSection,
   type SkinStoreState,
   type BobberSkinId,
 } from "../domain/prototype";
@@ -30,24 +29,18 @@ let mockState = initialPrototypeState;
 let mockSettings = defaultAppSettings;
 let mockSkinStore: SkinStoreState = {
   money: 0,
-  bodyWeightKg: 60,
+  poopKg: 0,
   ownedSkinIds: ["orange"],
+  ownedBuffIds: [],
 };
 let mockAdminSnapshot: AdminSnapshot = {
-  player: { bodyWeightKg: 60, money: 12800, pendingCatches: 2, eatenCount: 16, soldCount: 9 },
-  stats: {
-    fishCount: 43,
-    enabledFishCount: 43,
-    baitIngredientCount: 12,
-    waitingEventCount: 96,
-    outcomeDescriptionCount: 220,
-    fishingRoundCount: 48,
-    unlockedSkinCount: 3,
-  },
+  player: { poopKg: 0, money: 12800, pendingCatches: 2, eatenCount: 16, soldCount: 9 },
+  baitName: "综合试钓饵",
+  preferenceDate: "2026-08-25",
   fish: [
-    { id: 1, name: "鲫鱼", pricePerKg: 24, rarity: "common", minLengthCm: 8, maxLengthCm: 35, minWeightKg: 0.05, maxWeightKg: 1.5, enabled: true },
-    { id: 16, name: "鳜鱼", pricePerKg: 96, rarity: "rare", minLengthCm: 18, maxLengthCm: 60, minWeightKg: 0.25, maxWeightKg: 5, enabled: true },
-    { id: 41, name: "番茄肉丸意大利面鱼", pricePerKg: 200, rarity: "special", minLengthCm: 22, maxLengthCm: 58, minWeightKg: 0.8, maxWeightKg: 6.5, enabled: true },
+    { id: 1, name: "鲫鱼", pricePerKg: 24, rarity: "common", minimumSimilarity: 0.4, minLengthCm: 8, maxLengthCm: 35, minWeightKg: 0.05, maxWeightKg: 1.5, preference: { intensity: 0.8, color: 0.2, sweet: 0.4, sour: 0.1, salty: 0.3 }, similarity: 0.76, catchProbability: 0.083, enabled: true },
+    { id: 16, name: "鳜鱼", pricePerKg: 96, rarity: "rare", minimumSimilarity: 0.65, minLengthCm: 18, maxLengthCm: 60, minWeightKg: 0.25, maxWeightKg: 5, preference: { intensity: 0.9, color: 0.5, sweet: 0.1, sour: 0.2, salty: 0.7 }, similarity: 0.68, catchProbability: 0.011, enabled: true },
+    { id: 41, name: "番茄肉丸意大利面鱼", pricePerKg: 1000, rarity: "special", minimumSimilarity: 0, minLengthCm: 22, maxLengthCm: 58, minWeightKg: 0.8, maxWeightKg: 6.5, preference: { intensity: 0.7, color: 0.9, sweet: 0.4, sour: 0.5, salty: 0.2 }, similarity: 0.61, catchProbability: 0.003, enabled: true },
   ],
 };
 const mockListeners = new Set<(state: PrototypeState) => void>();
@@ -108,33 +101,18 @@ export async function getTreasureRecords(): Promise<TreasureRecord[]> {
 
 export async function getPlayerSummary(): Promise<PlayerSummary> {
   if (isTauriRuntime()) return invoke<PlayerSummary>("get_player_summary");
-  return { bodyWeightKg: 60, money: 0, pendingCatches: 0, eatenCount: 0, soldCount: 0 };
+  return { poopKg: 0, money: 0, pendingCatches: 0, eatenCount: 0, soldCount: 0 };
 }
 
 export async function getAdminSnapshot(): Promise<AdminSnapshot> {
   return isTauriRuntime() ? invoke<AdminSnapshot>("get_admin_snapshot") : structuredClone(mockAdminSnapshot);
 }
 
-export async function createAdminDatabaseBackup(): Promise<string> {
-  return isTauriRuntime()
-    ? invoke<string>("create_admin_database_backup")
-    : "浏览器预览不会写入数据库";
-}
-
-export async function updateAdminPlayer(bodyWeightKg: number, money: number): Promise<AdminMutationResult> {
-  if (isTauriRuntime()) return invoke<AdminMutationResult>("update_admin_player", { bodyWeightKg, money });
+export async function updateAdminMoney(money: number): Promise<AdminMutationResult> {
+  if (isTauriRuntime()) return invoke<AdminMutationResult>("update_admin_money", { money });
   mockAdminSnapshot = {
     ...mockAdminSnapshot,
-    player: { ...mockAdminSnapshot.player, bodyWeightKg, money },
-  };
-  return { snapshot: structuredClone(mockAdminSnapshot), backupPath: "浏览器预览不会写入数据库" };
-}
-
-export async function updateAdminFish(fish: AdminFishInput): Promise<AdminMutationResult> {
-  if (isTauriRuntime()) return invoke<AdminMutationResult>("update_admin_fish", { fish });
-  mockAdminSnapshot = {
-    ...mockAdminSnapshot,
-    fish: mockAdminSnapshot.fish.map((item) => item.id === fish.id ? fish : item),
+    player: { ...mockAdminSnapshot.player, money },
   };
   return { snapshot: structuredClone(mockAdminSnapshot), backupPath: "浏览器预览不会写入数据库" };
 }
@@ -161,10 +139,23 @@ export async function purchaseSkin(skinId: BobberSkinId): Promise<SkinStoreState
   return mockSkinStore;
 }
 
-export async function claimWeightSkin(skinId: BobberSkinId): Promise<SkinStoreState> {
-  if (isTauriRuntime()) return invoke<SkinStoreState>("claim_weight_skin", { skinId });
+export async function purchaseStoreBuff(buffId: string): Promise<SkinStoreState> {
+  if (isTauriRuntime()) return invoke<SkinStoreState>("purchase_store_buff", { buffId });
+  if (buffId !== "shorter_rounds_30") throw new Error("未知的商店 Buff");
+  if (mockSkinStore.ownedBuffIds.includes(buffId)) throw new Error("这个 Buff 已经永久生效");
+  if (mockSkinStore.money < 30_000) throw new Error("金币不足");
+  mockSkinStore = {
+    ...mockSkinStore,
+    money: mockSkinStore.money - 30_000,
+    ownedBuffIds: [...mockSkinStore.ownedBuffIds, buffId],
+  };
+  return mockSkinStore;
+}
+
+export async function claimPoopSkin(skinId: BobberSkinId): Promise<SkinStoreState> {
+  if (isTauriRuntime()) return invoke<SkinStoreState>("claim_poop_skin", { skinId });
   if (mockSkinStore.ownedSkinIds.includes(skinId)) throw new Error("这款皮肤已经拥有");
-  if (mockSkinStore.bodyWeightKg < 1_000) throw new Error("体重尚未达标");
+  if (mockSkinStore.poopKg < 1_000) throw new Error("累计产屎量尚未达标");
   mockSkinStore = {
     ...mockSkinStore,
     ownedSkinIds: [...mockSkinStore.ownedSkinIds, skinId],
@@ -264,16 +255,21 @@ export async function sendPrototypeNotification(): Promise<boolean> {
   return true;
 }
 
-export async function subscribeBobberToast(listener: (message: BobberToastPayload) => void): Promise<UnlistenFn> {
+export async function subscribeBobberAlert(listener: (pending: boolean) => void): Promise<UnlistenFn> {
   if (!isTauriRuntime()) return () => undefined;
-  const unlisten = await listen<BobberToastPayload>("bobber-toast", (event) => listener(event.payload));
-  const pending = await invoke<BobberToastPayload | null>("get_pending_bobber_toast");
-  if (pending) listener(pending);
+  const unlisten = await listen<boolean>("bobber-alert", (event) => listener(event.payload));
+  const pending = await invoke<boolean>("get_pending_bobber_alert");
+  listener(pending);
   return unlisten;
 }
 
-export async function activateBobberToast(): Promise<void> {
-  if (isTauriRuntime()) await invoke("activate_bobber_toast");
+export async function activateBobberAlert(): Promise<void> {
+  if (isTauriRuntime()) await invoke("activate_bobber_alert");
+}
+
+export async function subscribeMainNavigation(listener: (section: MainSection) => void): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) return () => undefined;
+  return listen<MainSection>("main-navigate", (event) => listener(event.payload));
 }
 
 export async function subscribePrototypeState(listener: (state: PrototypeState) => void): Promise<UnlistenFn> {

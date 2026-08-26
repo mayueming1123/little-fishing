@@ -6,10 +6,10 @@ import { FishingLogPage } from "../log/FishingLogPage";
 import { SettingsPage } from "../settings/SettingsPage";
 import { SkinStorePage } from "../store/SkinStorePage";
 import { usePrototypeState } from "../../hooks/usePrototypeState";
-import { isTauriRuntime, sendPrototypeNotification } from "../../ipc/client";
+import { isTauriRuntime, sendPrototypeNotification, subscribeMainNavigation } from "../../ipc/client";
+import type { MainSection } from "../../domain/prototype";
 import { formatClock, formatElapsed } from "../../lib/time";
 
-type Section = "fishing" | "basket" | "log" | "fish" | "bait" | "store" | "settings";
 const eventCategoryLabels = {
   environment: "岸边",
   water: "水面",
@@ -26,15 +26,22 @@ const navigation = [
   { id: "store" as const, label: "商店", enabled: true },
   { id: "settings" as const, label: "设置", enabled: true },
 ];
+const showTestControls = import.meta.env.DEV;
 export function MainWindow() {
   const { state, error, refresh, toggleFishing } = usePrototypeState();
   const [now, setNow] = useState(Date.now());
   const [notice, setNotice] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("fishing");
+  const [section, setSection] = useState<MainSection>("fishing");
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void subscribeMainNavigation(setSection).then((dispose) => { unlisten = dispose; });
+    return () => unlisten?.();
   }, []);
 
   const waiting = state?.phase === "waiting";
@@ -57,14 +64,13 @@ export function MainWindow() {
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark" aria-hidden="true">│</div><div><strong>小小钓鱼</strong><small>桌面钓鱼陪伴</small></div></div>
         <nav className="nav-list" aria-label="主要导航">
-          {navigation.map((item) => <button key={item.id} className={`nav-item ${section === item.id ? "active" : ""}`} disabled={!item.enabled} onClick={() => item.enabled && setSection(item.id as Section)}>{item.label}</button>)}
+          {navigation.map((item) => <button key={item.id} className={`nav-item ${section === item.id ? "active" : ""}`} disabled={!item.enabled} onClick={() => item.enabled && setSection(item.id)}>{item.label}</button>)}
         </nav>
-        <div className="sidebar-foot">纯挂机 · 无成长<br />无保底 · 只看运气</div>
       </aside>
 
       <section className="content">
         <header className="content-header">
-          <div><p className="eyebrow">FISHING COMPANION</p><h1>{section === "fishing" ? "今天也慢慢等一竿" : section === "basket" ? "钓上来的鱼先放在这里" : section === "log" ? "每一竿都留下一点动静" : section === "fish" ? "每条鱼都有自己的记录" : section === "bait" ? "随手调一份今天的鱼饵" : section === "store" ? "给桌面浮标换个伙伴" : "把陪伴方式调得顺手一点"}</h1><p className="subtitle">{section === "fishing" ? "不催促，不保底，水下什么时候有结果没人知道。" : section === "basket" ? "鱼获不会催你处理，想吃掉或卖掉时再来看看。" : section === "log" ? "回头看看等待、空军，以及已经发生过的每一竿。" : section === "fish" ? "筛选已钓到或未钓到的鱼；隐藏偏好仍然不会显示。" : section === "bait" ? "自由搭配成分与比例，真正的属性留在水下。" : section === "store" ? "金币换外观，体重解成就；都不会让下一条鱼更好钓。" : "通知、浮标和显示选项都只保存在这台电脑。"}</p></div>
+          <div><p className="eyebrow">FISHING COMPANION</p><h1>{section === "fishing" ? "今天也慢慢等一竿" : section === "basket" ? "钓上来的鱼先放在这里" : section === "log" ? "每一竿都留下一点动静" : section === "fish" ? "每条鱼都有自己的记录" : section === "bait" ? "随手调一份今天的鱼饵" : section === "store" ? "给桌面浮标换个伙伴" : "把陪伴方式调得顺手一点"}</h1><p className="subtitle">{section === "fishing" ? "不催促，不保底，水下什么时候有结果没人知道。" : section === "basket" ? "鱼获不会催你处理，想吃掉或卖掉时再来看看。" : section === "log" ? "回头看看等待、空军，以及已经发生过的每一竿。" : section === "fish" ? "筛选已钓到或未钓到的鱼；隐藏偏好仍然不会显示。" : section === "bait" ? "自由搭配成分与比例，五维属性会随配方实时变化。" : section === "store" ? "金币换外观与永久 Buff，累计产屎量解锁趣味成就。" : "通知、浮标和显示选项都只保存在这台电脑。"}</p></div>
           {!isTauriRuntime() && <span className="runtime-badge">前端预览模式</span>}
         </header>
 
@@ -76,7 +82,7 @@ export function MainWindow() {
             <div className="countdown">{waiting ? "本竿已经钓了" : "开始以后会自动进行下一轮"}<strong>{formatElapsed(state?.roundStartedAt ?? null, now)}</strong></div>
             <div className="button-row">
               <button className={`primary-button ${waiting ? "stop" : ""}`} onClick={toggleFishing}>{waiting ? "停止钓鱼" : "开始钓鱼"}</button>
-              <button className="quiet-button" onClick={testNotification}>测试通知</button>
+              {showTestControls && <button className="quiet-button" onClick={testNotification}>测试通知</button>}
             </div>
             {(error || notice) && <div className="error-strip" role="status">{error ?? notice}</div>}
           </div>
@@ -95,7 +101,7 @@ export function MainWindow() {
           <article className="paper-card"><h3>本竿事件</h3>{visibleWaitingEvents.length > 0
             ? <ol className="live-event-feed">{visibleWaitingEvents.map((event) => <li key={event.id}><time>{formatClock(event.scheduledAt)}</time><em>{eventCategoryLabels[event.category]}</em><span>{event.description}</span></li>)}</ol>
             : <div className="log-line"><time>现在</time><span>{recentText}</span></div>}</article>
-          <article className="paper-card"><h3>水下判断</h3><p className="hidden-rule-note">鱼饵属性与鱼类当天偏好都会保持隐藏。配方是否合适，只能从当天一次次结果里慢慢推测。</p></article>
+          <article className="paper-card"><h3>水下判断</h3><p className="hidden-rule-note">鱼饵五维属性可以在鱼饵页查看；鱼类当天偏好与实际匹配度仍保持隐藏，只能从当天一次次结果里慢慢推测。</p></article>
         </section></>}
       </section>
     </main>

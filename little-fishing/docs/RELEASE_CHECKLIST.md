@@ -2,17 +2,17 @@
 
 检查日期：2026-08-25
 
-版本：0.1.1
+版本：0.1.3
 
 目标：Windows x64 / NSIS
 
 ## 构建产物
 
-- 安装包：`src-tauri/target/release/bundle/nsis/小小钓鱼_0.1.1_x64-setup.exe`
-- 安装包大小：构建完成后记录
-- SHA-256：构建完成后记录
-- Release 主程序大小：构建完成后记录
-- 文件版本：0.1.1
+- 安装包：`src-tauri/target/release/bundle/nsis/小小钓鱼_0.1.3_x64-setup.exe`
+- 安装包大小：构建后更新
+- SHA-256：构建后更新
+- Release 主程序大小：构建后更新
+- 文件版本：0.1.3
 
 ## 已通过
 

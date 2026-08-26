@@ -27,11 +27,11 @@ const pendingCatch: FishingLogEntry = {
   description: "鳞片在水边闪了一下。",
   disposition: "pending",
   dispositionAt: null,
-  gainedWeightKg: null,
+  gainedPoopKg: null,
   gainedMoney: null,
 };
 
-const summary = { bodyWeightKg: 60, money: 0, pendingCatches: 1, eatenCount: 0, soldCount: 0 };
+const summary = { poopKg: 0, money: 0, pendingCatches: 1, eatenCount: 0, soldCount: 0 };
 
 describe("FishBasketPage", () => {
   beforeEach(() => {

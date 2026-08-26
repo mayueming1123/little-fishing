@@ -12,7 +12,7 @@ vi.mock("../../ipc/client", () => ({
 const records: FishRecord[] = [
   { fishId: 1, name: "鲤鱼", pricePerKg: 12, rarity: "common", caughtCount: 2, maxLengthCm: 31, maxWeightKg: 1.2, latestDescription: "鳞片发亮。" },
   { fishId: 2, name: "鲫鱼", pricePerKg: 15, rarity: "uncommon", caughtCount: 0, maxLengthCm: null, maxWeightKg: null, latestDescription: null },
-  { fishId: 41, name: "番茄肉丸意大利面鱼", pricePerKg: 200, rarity: "special", caughtCount: 0, maxLengthCm: null, maxWeightKg: null, latestDescription: null },
+  { fishId: 41, name: "番茄肉丸意大利面鱼", pricePerKg: 1000, rarity: "special", caughtCount: 0, maxLengthCm: null, maxWeightKg: null, latestDescription: null },
 ];
 
 const treasures: TreasureRecord[] = [

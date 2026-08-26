@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BaitEditorData, BaitRecipeComponent } from "../../domain/prototype";
 import { getBaitEditorData, saveBaitRecipe } from "../../ipc/client";
+import { BaitFlavorRadar, calculateBaitFlavor } from "./BaitFlavorRadar";
 
 export function BaitRecipePage({ isFishing, onSaved }: { isFishing: boolean; onSaved: () => Promise<void> }) {
   const [data, setData] = useState<BaitEditorData | null>(null);
@@ -20,6 +21,10 @@ export function BaitRecipePage({ isFishing, onSaved }: { isFishing: boolean; onS
     .map(([id, value]) => ({ ingredientId: Number(id), percentage: Number(value) }))
     .filter((item) => Number.isFinite(item.percentage) && item.percentage > 0), [percentages]);
   const total = entries.reduce((sum, item) => sum + item.percentage, 0);
+  const currentFlavor = useMemo(
+    () => calculateBaitFlavor(data?.ingredients ?? [], entries),
+    [data, entries],
+  );
 
   async function save() {
     try {
@@ -38,7 +43,7 @@ export function BaitRecipePage({ isFishing, onSaved }: { isFishing: boolean; onS
     <div className="bait-layout"><article className="paper-card"><label className="field-label">配方名称<input value={name} maxLength={24} disabled={isFishing} onChange={(event) => setName(event.target.value)} /></label><div className="ingredient-list">{data.ingredients.map((ingredient) => {
       const raw = percentages[ingredient.id] ?? "";
       const effective = total > 0 && Number(raw) > 0 ? Number(raw) / total * 100 : 0;
-      return <div className="ingredient-row" key={ingredient.id}><div><strong>{ingredient.name}</strong><small>具体属性隐藏</small></div><label><input type="number" min="0" step="1" value={raw} disabled={isFishing} placeholder="0" onChange={(event) => setPercentages((current) => ({ ...current, [ingredient.id]: event.target.value }))} /><span>份</span></label><em>{effective.toFixed(1)}%</em></div>;
-    })}</div></article><aside className="paper-card bait-preview"><h3>本次配方</h3><p>已选 {entries.length} 种成分</p><p>当前填写总量：{total.toFixed(1)} 份</p><p className="hidden-rule-note">饵料的五项属性不会直接显示。鱼的偏好每天变化，只能根据当日钓鱼结果推测。</p><button className="primary-button" disabled={isFishing || total <= 0 || !name.trim()} onClick={save}>保存并选用</button>{message && <div className="error-strip" role="status">{message}</div>}</aside></div>
+      return <div className="ingredient-row" key={ingredient.id}><div><strong>{ingredient.name}</strong><small>属性会按配比汇总到右侧维度图</small></div><label><input type="number" min="0" step="1" value={raw} disabled={isFishing} placeholder="0" onChange={(event) => setPercentages((current) => ({ ...current, [ingredient.id]: event.target.value }))} /><span>份</span></label><em>{effective.toFixed(1)}%</em></div>;
+    })}</div></article><aside className="paper-card bait-preview"><h3>本次配方</h3><p>已选 {entries.length} 种成分 · 当前填写总量 {total.toFixed(1)} 份</p><BaitFlavorRadar flavor={currentFlavor} /><p className="hidden-rule-note">五维属性按当前配比归一化计算，最大值为 1。鱼类每天变化的偏好与实际匹配度仍保持隐藏。</p><button className="primary-button" disabled={isFishing || total <= 0 || !name.trim()} onClick={save}>保存并选用</button>{message && <div className="error-strip" role="status">{message}</div>}</aside></div>
   </section>;
 }
