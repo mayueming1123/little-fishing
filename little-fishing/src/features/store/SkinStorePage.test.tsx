@@ -73,9 +73,9 @@ describe("SkinStorePage", () => {
   it("hides mystery achievement skins until their matching discovery", async () => {
     render(<SkinStorePage />);
 
-    await waitFor(() => expect(screen.getAllByText("通过某种特殊成就获得。")).toHaveLength(8));
-    expect(screen.getAllByText("？？？")).toHaveLength(8);
-    expect(screen.getAllByAltText("未解锁成就皮肤剪影")).toHaveLength(8);
-    expect(screen.getAllByRole("button", { name: "通过某种特殊成就获得" })).toHaveLength(8);
+    await waitFor(() => expect(screen.getAllByText("通过某种特殊成就获得。")).toHaveLength(9));
+    expect(screen.getAllByText("？？？")).toHaveLength(9);
+    expect(screen.getAllByAltText("未解锁成就皮肤剪影")).toHaveLength(9);
+    expect(screen.getAllByRole("button", { name: "通过某种特殊成就获得" })).toHaveLength(9);
   });
 });

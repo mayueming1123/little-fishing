@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FishRecord, TreasureRecord } from "../../domain/prototype";
 import { getFishRecords, getTreasureRecords } from "../../ipc/client";
 import { FishRecordsPage } from "./FishRecordsPage";
@@ -21,6 +21,7 @@ const treasures: TreasureRecord[] = [
 ];
 
 describe("FishRecordsPage", () => {
+  afterEach(cleanup);
   beforeEach(() => {
     vi.mocked(getFishRecords).mockResolvedValue(records);
     vi.mocked(getTreasureRecords).mockResolvedValue(treasures);
@@ -43,5 +44,18 @@ describe("FishRecordsPage", () => {
     expect(screen.getByText("神秘奇遇")).toBeTruthy();
     expect(screen.getByText("水晶鞋")).toBeTruthy();
     expect(screen.getByText("？？？")).toBeTruthy();
+  });
+
+  it("combines caught-state and rarity filters", async () => {
+    render(<FishRecordsPage />);
+    await waitFor(() => expect(screen.getByText("鲤鱼")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "未钓到 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "特殊 1" }));
+
+    expect(screen.queryByText("鲤鱼")).toBeNull();
+    expect(screen.queryByText("鲫鱼")).toBeNull();
+    expect(screen.getByText("番茄肉丸意大利面鱼")).toBeTruthy();
+    expect(screen.getByText("显示 1 / 3 种")).toBeTruthy();
   });
 });

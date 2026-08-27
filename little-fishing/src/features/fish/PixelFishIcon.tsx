@@ -16,7 +16,7 @@ interface FishIconSpec {
   spines?: boolean;
 }
 
-// 顺序与数据库中 1～40 号鱼种严格对应；轮廓、花纹与配色组合均不重复。
+// 顺序与数据库中 1～40、44～53 号现实鱼种严格对应；41～43 使用独立特殊鱼图片。
 export const fishIconSpecs: readonly FishIconSpec[] = [
   { shape: "standard", marking: "scales", body: "#ad7b42", dark: "#65452e", accent: "#d5ad62", belly: "#d8bd86", whiskers: true },
   { shape: "deep", marking: "scales", body: "#a9a58c", dark: "#62685d", accent: "#d6c48c", belly: "#d7d4be" },
@@ -58,6 +58,16 @@ export const fishIconSpecs: readonly FishIconSpec[] = [
   { shape: "slender", marking: "speckles", body: "#688895", dark: "#344e5a", accent: "#a8bec0", belly: "#bdccca" },
   { shape: "eel", marking: "saddle", body: "#8b8060", dark: "#494a39", accent: "#b7a767", belly: "#aaa48a" },
   { shape: "slender", marking: "bands", body: "#a58b66", dark: "#53473b", accent: "#d1bd88", belly: "#c7bda5", spines: true },
+  { shape: "slender", marking: "lateral", body: "#d6bd59", dark: "#705a32", accent: "#f0df84", belly: "#eee1ad" },
+  { shape: "slender", marking: "bands", body: "#7392a0", dark: "#344f60", accent: "#a7c4cd", belly: "#cbd9d8" },
+  { shape: "standard", marking: "speckles", body: "#c9a95f", dark: "#6e5739", accent: "#806b4a", belly: "#e7d59c" },
+  { shape: "slender", marking: "saddle", body: "#7e877a", dark: "#38453e", accent: "#aeb798", belly: "#c5cab8", whiskers: true, spines: true },
+  { shape: "flat", marking: "spots", body: "#ad916f", dark: "#594c3d", accent: "#d4ba86", belly: "#cfc0a6" },
+  { shape: "deep", marking: "scales", body: "#cf6e62", dark: "#713f42", accent: "#f0a06f", belly: "#e8b6a0", spines: true },
+  { shape: "standard", marking: "spots", body: "#829b87", dark: "#3d5b50", accent: "#c6a95e", belly: "#c1d0bd", spines: true },
+  { shape: "grouper", marking: "stripe", body: "#778b70", dark: "#344d3e", accent: "#b5c272", belly: "#afbea6", spines: true },
+  { shape: "flat", marking: "plain", body: "#b19c79", dark: "#5b5141", accent: "#dbc78f", belly: "#d4c6a9" },
+  { shape: "eel", marking: "speckles", body: "#564e48", dark: "#252b2c", accent: "#b9a260", belly: "#81766a" },
 ] as const;
 
 const specialFishIcons: Readonly<Record<number, string>> = {
@@ -99,7 +109,8 @@ export function PixelFishIcon({ fishId, label }: { fishId: number; label: string
   if (specialIcon) {
     return <img className="pixel-fish special-fish-icon" data-fish-id={fishId} src={specialIcon} alt={`${label}像素图标`} draggable={false} />;
   }
-  const spec = fishIconSpecs[(fishId - 1 + fishIconSpecs.length) % fishIconSpecs.length];
+  const mappedIndex = fishId >= 44 && fishId <= 53 ? fishId - 4 : fishId - 1;
+  const spec = fishIconSpecs[(mappedIndex + fishIconSpecs.length) % fishIconSpecs.length];
   const shape = shapePaths[spec.shape];
   return <svg className="pixel-fish" data-fish-id={fishId} viewBox="0 0 64 40" role="img" aria-label={`${label}像素图标`} shapeRendering="crispEdges">
     <path fill={spec.dark} d={shape.outer} />

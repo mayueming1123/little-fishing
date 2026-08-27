@@ -75,7 +75,7 @@ export function AdminPage({ onClose }: { onClose: () => void }) {
       <section className="admin-card admin-fish-card">
         <div className="admin-section-heading"><div><p className="eyebrow">TODAY'S FISH ODDS</p><h2>鱼类爆率与属性</h2></div><p>日期 {snapshot.preferenceDate} · 当前鱼饵「{snapshot.baitName}」。爆率表示按当前鱼饵完成一整轮后，最终钓到该鱼的实际概率。</p></div>
         <div className="admin-table-wrap"><table className="admin-table admin-odds-table">
-          <thead><tr><th>鱼种</th><th>稀有度</th><th>单轮爆率</th><th>当前匹配</th><th>最低匹配</th><th>今日五维属性</th><th>价格</th><th>长度</th><th>重量</th><th>状态</th></tr></thead>
+          <thead><tr><th>鱼种</th><th>稀有度</th><th>单轮爆率</th><th>当前匹配</th><th>最低匹配</th><th>今日五维属性</th><th>五维来源</th><th>价格</th><th>长度</th><th>重量</th><th>状态</th></tr></thead>
           <tbody>{snapshot.fish.map((fish) => <tr key={fish.id}>
             <td><span className="admin-fish-id">#{fish.id}</span><strong>{fish.name}</strong></td>
             <td><span className={`rarity-badge rarity-${fish.rarity}`}>{rarityLabels[fish.rarity]}</span></td>
@@ -83,6 +83,7 @@ export function AdminPage({ onClose }: { onClose: () => void }) {
             <td>{(fish.similarity * 100).toFixed(1)}%</td>
             <td>{fish.rarity === "special" ? "特殊判定" : `${(fish.minimumSimilarity * 100).toFixed(0)}%`}</td>
             <td><div className="admin-flavor-grid">{preferenceLabels.map(([key, label]) => <span key={key}><b>{label}</b>{fish.preference[key].toFixed(2)}</span>)}</div></td>
+            <td><div className="admin-preference-sources">{fish.preferenceSources.length > 0 ? fish.preferenceSources.map((source) => <span key={source.ingredientId}>{source.ingredientName} {source.percentage.toFixed(1)}%</span>) : <span>旧数据待刷新</span>}</div></td>
             <td>{fish.pricePerKg.toFixed(2)} /kg</td><td>{fish.minLengthCm.toFixed(1)}–{fish.maxLengthCm.toFixed(1)} cm</td><td>{fish.minWeightKg.toFixed(2)}–{fish.maxWeightKg.toFixed(2)} kg</td><td>{fish.enabled ? "启用" : "停用"}</td>
           </tr>)}</tbody>
         </table></div>

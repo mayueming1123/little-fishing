@@ -38,9 +38,9 @@ let mockAdminSnapshot: AdminSnapshot = {
   baitName: "综合试钓饵",
   preferenceDate: "2026-08-25",
   fish: [
-    { id: 1, name: "鲫鱼", pricePerKg: 24, rarity: "common", minimumSimilarity: 0.4, minLengthCm: 8, maxLengthCm: 35, minWeightKg: 0.05, maxWeightKg: 1.5, preference: { intensity: 0.8, color: 0.2, sweet: 0.4, sour: 0.1, salty: 0.3 }, similarity: 0.76, catchProbability: 0.083, enabled: true },
-    { id: 16, name: "鳜鱼", pricePerKg: 96, rarity: "rare", minimumSimilarity: 0.65, minLengthCm: 18, maxLengthCm: 60, minWeightKg: 0.25, maxWeightKg: 5, preference: { intensity: 0.9, color: 0.5, sweet: 0.1, sour: 0.2, salty: 0.7 }, similarity: 0.68, catchProbability: 0.011, enabled: true },
-    { id: 41, name: "番茄肉丸意大利面鱼", pricePerKg: 1000, rarity: "special", minimumSimilarity: 0, minLengthCm: 22, maxLengthCm: 58, minWeightKg: 0.8, maxWeightKg: 6.5, preference: { intensity: 0.7, color: 0.9, sweet: 0.4, sour: 0.5, salty: 0.2 }, similarity: 0.61, catchProbability: 0.003, enabled: true },
+    { id: 1, name: "鲫鱼", pricePerKg: 24, rarity: "common", minimumSimilarity: 0.4, minLengthCm: 8, maxLengthCm: 35, minWeightKg: 0.05, maxWeightKg: 1.5, preference: { intensity: 0.8, color: 0.2, sweet: 0.4, sour: 0.1, salty: 0.3 }, preferenceSources: [{ ingredientId: 1, ingredientName: "玉米粉", percentage: 60 }, { ingredientId: 2, ingredientName: "虾粉", percentage: 40 }], similarity: 0.76, catchProbability: 0.083, enabled: true },
+    { id: 16, name: "鳜鱼", pricePerKg: 96, rarity: "rare", minimumSimilarity: 0.65, minLengthCm: 18, maxLengthCm: 60, minWeightKg: 0.25, maxWeightKg: 5, preference: { intensity: 0.9, color: 0.5, sweet: 0.1, sour: 0.2, salty: 0.7 }, preferenceSources: [{ ingredientId: 8, ingredientName: "鱼粉", percentage: 100 }], similarity: 0.68, catchProbability: 0.011, enabled: true },
+    { id: 41, name: "番茄肉丸意大利面鱼", pricePerKg: 1000, rarity: "special", minimumSimilarity: 0, minLengthCm: 22, maxLengthCm: 58, minWeightKg: 0.8, maxWeightKg: 6.5, preference: { intensity: 0.7, color: 0.9, sweet: 0.4, sour: 0.5, salty: 0.2 }, preferenceSources: [{ ingredientId: 11, ingredientName: "果酸粉", percentage: 100 }], similarity: 0.61, catchProbability: 0.003, enabled: true },
   ],
 };
 const mockListeners = new Set<(state: PrototypeState) => void>();
@@ -77,17 +77,28 @@ export async function getBaitEditorData(): Promise<BaitEditorData> {
   if (isTauriRuntime()) return invoke<BaitEditorData>("get_bait_editor_data");
   return {
     ingredients: [],
+    recipeId: mockState.selectedRecipeId,
     recipeName: mockState.selectedRecipeName ?? "综合试钓饵",
+    recipes: [{ id: 1, name: "综合试钓饵" }],
     components: [],
     canEdit: !mockState.isFishing,
   };
 }
 
 export async function saveBaitRecipe(
+  recipeId: number | null,
   name: string,
   components: BaitRecipeComponent[],
+  saveAsNew: boolean,
 ): Promise<PrototypeState> {
-  if (isTauriRuntime()) return invoke<PrototypeState>("save_bait_recipe", { name, components });
+  if (isTauriRuntime()) return invoke<PrototypeState>("save_bait_recipe", { recipeId, name, components, saveAsNew });
+  return mockState;
+}
+
+export async function selectBaitRecipe(recipeId: number): Promise<PrototypeState> {
+  if (isTauriRuntime()) return invoke<PrototypeState>("select_bait_recipe", { recipeId });
+  mockState = { ...mockState, selectedRecipeId: recipeId, stateRevision: mockState.stateRevision + 1 };
+  emitMock();
   return mockState;
 }
 
@@ -127,6 +138,7 @@ export async function purchaseSkin(skinId: BobberSkinId): Promise<SkinStoreState
     : skinId === "calico" ? 10_000
       : ["siamese", "samoyed", "golden_retriever"].includes(skinId) ? 20_000
         : ["silver_tabby", "tuxedo", "ragdoll"].includes(skinId) ? 30_000
+          : skinId === "tom" ? 50_000
           : null;
   if (price === null) throw new Error("这款皮肤不是商店售卖项目");
   if (mockSkinStore.ownedSkinIds.includes(skinId)) throw new Error("这款皮肤已经拥有");
@@ -265,6 +277,10 @@ export async function subscribeBobberAlert(listener: (pending: boolean) => void)
 
 export async function activateBobberAlert(): Promise<void> {
   if (isTauriRuntime()) await invoke("activate_bobber_alert");
+}
+
+export async function dismissBobberAlert(): Promise<void> {
+  if (isTauriRuntime()) await invoke("dismiss_bobber_alert");
 }
 
 export async function subscribeMainNavigation(listener: (section: MainSection) => void): Promise<UnlistenFn> {

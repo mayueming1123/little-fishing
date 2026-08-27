@@ -4,13 +4,14 @@ import { PixelFishIcon, fishIconSpecs } from "./PixelFishIcon";
 
 describe("PixelFishIcon", () => {
   it("provides one distinct visual specification for every seeded fish", () => {
-    expect(fishIconSpecs).toHaveLength(40);
+    expect(fishIconSpecs).toHaveLength(50);
+    const fishIds = [...Array.from({ length: 40 }, (_, index) => index + 1), ...Array.from({ length: 10 }, (_, index) => index + 44)];
     const icons = fishIconSpecs.map((spec, index) => ({
       signature: JSON.stringify(spec),
-      markup: renderToStaticMarkup(<PixelFishIcon fishId={index + 1} label="鱼" />),
+      markup: renderToStaticMarkup(<PixelFishIcon fishId={fishIds[index]} label="鱼" />),
     }));
-    expect(new Set(icons.map((icon) => icon.signature)).size).toBe(40);
-    expect(new Set(icons.map((icon) => icon.markup)).size).toBe(40);
+    expect(new Set(icons.map((icon) => icon.signature)).size).toBe(50);
+    expect(new Set(icons.map((icon) => icon.markup)).size).toBe(50);
   });
 
   it("uses three distinct generated pixel images for the special fish", () => {

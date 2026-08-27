@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { activateBobberAlert, subscribeBobberAlert } from "../../ipc/client";
+import { activateBobberAlert, dismissBobberAlert, subscribeBobberAlert, toggleCompactPanel } from "../../ipc/client";
 import { BobberView } from "./BobberView";
 
 vi.mock("../../hooks/usePrototypeState", () => ({
@@ -9,6 +9,7 @@ vi.mock("../../hooks/usePrototypeState", () => ({
 
 vi.mock("../../ipc/client", () => ({
   activateBobberAlert: vi.fn(),
+  dismissBobberAlert: vi.fn(),
   getAppSettings: vi.fn().mockResolvedValue({
     notificationsEnabled: true,
     bobberVisible: true,
@@ -47,6 +48,25 @@ describe("BobberView", () => {
     fireEvent.click(alert);
 
     expect(activateBobberAlert).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "有新的钓鱼事件，点击打开主页" })).toBeNull();
+  });
+
+  it("clears the alert when the character opens the compact panel", async () => {
+    let alertListener: ((pending: boolean) => void) | undefined;
+    vi.mocked(subscribeBobberAlert).mockImplementation(async (listener) => {
+      alertListener = listener;
+      return () => undefined;
+    });
+    render(<BobberView />);
+    await act(async () => undefined);
+    act(() => alertListener?.(true));
+
+    const character = screen.getByRole("button", { name: "已停止，点击打开状态面板" });
+    fireEvent.pointerDown(character, { screenX: 100, screenY: 100 });
+    fireEvent.pointerUp(character, { screenX: 100, screenY: 100 });
+
+    expect(dismissBobberAlert).toHaveBeenCalledOnce();
+    expect(toggleCompactPanel).toHaveBeenCalledOnce();
     expect(screen.queryByRole("button", { name: "有新的钓鱼事件，点击打开主页" })).toBeNull();
   });
 });

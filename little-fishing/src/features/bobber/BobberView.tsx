@@ -3,6 +3,7 @@ import { defaultAppSettings, type BobberSkinId } from "../../domain/prototype";
 import { usePrototypeState } from "../../hooks/usePrototypeState";
 import {
   activateBobberAlert,
+  dismissBobberAlert,
   getAppSettings,
   showBobberContextMenu,
   startWindowDrag,
@@ -59,7 +60,11 @@ export function BobberView() {
       onPointerUp={() => {
         const dragged = pointer.current?.dragged;
         pointer.current = null;
-        if (!dragged) void toggleCompactPanel();
+        if (!dragged) {
+          setHasAlert(false);
+          void dismissBobberAlert();
+          void toggleCompactPanel();
+        }
       }}
       onContextMenu={(event) => { event.preventDefault(); void showBobberContextMenu(); }}
     >

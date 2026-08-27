@@ -6,46 +6,67 @@ use crate::fishing_rules::{
 use crate::round_engine::{EventCatalog, WaitingEvent, event_description_seeds};
 use rand::Rng;
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::Mutex,
 };
 
-const TREASURE_SKIN_REWARDS: [(i64, &str); 5] = [
+const TREASURE_SKIN_REWARDS: [(i64, &str); 6] = [
     (1, "treasure_pearl"),
     (2, "treasure_crystal_shoe"),
     (3, "treasure_seal"),
     (4, "treasure_wood_sword"),
     (5, "treasure_martial_manual"),
+    (6, "treasure_perfume"),
 ];
 const SPECIAL_FISH_SKIN_REWARDS: [(i64, &str); 3] = [
     (41, "special_spaghetti_dog"),
     (42, "special_pizza_rabbit"),
     (43, "special_water_monster"),
 ];
-const DAILY_PREFERENCE_GENERATION_VERSION: i64 = 2;
+const DAILY_PREFERENCE_GENERATION_VERSION: i64 = 3;
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+struct PreferenceSourceComponent {
+    ingredient_id: i64,
+    percentage: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct GeneratedFishPreference {
+    flavor: FlavorVector,
+    components: Vec<PreferenceSourceComponent>,
+}
 
 fn generate_reachable_fish_preference<R: Rng + ?Sized>(
-    ingredients: &[FlavorVector],
+    ingredients: &[(i64, FlavorVector)],
     rng: &mut R,
-) -> FlavorVector {
+) -> GeneratedFishPreference {
     if ingredients.is_empty() {
-        return FlavorVector {
-            intensity: 0.5,
-            color: 0.5,
-            sweet: 0.5,
-            sour: 0.5,
-            salty: 0.5,
+        return GeneratedFishPreference {
+            flavor: FlavorVector {
+                intensity: 0.5,
+                color: 0.5,
+                sweet: 0.5,
+                sour: 0.5,
+                salty: 0.5,
+            },
+            components: Vec::new(),
         };
     }
 
     let component_count = rng.random_range(1..=ingredients.len().min(3));
+    let mut available_indices: Vec<usize> = (0..ingredients.len()).collect();
     let mut total_weight = 0.0;
     let mut totals = [0.0; 5];
+    let mut selected = Vec::with_capacity(component_count);
     for _ in 0..component_count {
-        let ingredient = ingredients[rng.random_range(0..ingredients.len())];
+        let available_index = rng.random_range(0..available_indices.len());
+        let ingredient_index = available_indices.swap_remove(available_index);
+        let (ingredient_id, ingredient) = ingredients[ingredient_index];
         let weight = rng.random_range(0.2..=1.0);
         total_weight += weight;
         totals[0] += ingredient.intensity * weight;
@@ -53,14 +74,24 @@ fn generate_reachable_fish_preference<R: Rng + ?Sized>(
         totals[2] += ingredient.sweet * weight;
         totals[3] += ingredient.sour * weight;
         totals[4] += ingredient.salty * weight;
+        selected.push((ingredient_id, weight));
     }
 
-    FlavorVector {
-        intensity: totals[0] / total_weight,
-        color: totals[1] / total_weight,
-        sweet: totals[2] / total_weight,
-        sour: totals[3] / total_weight,
-        salty: totals[4] / total_weight,
+    GeneratedFishPreference {
+        flavor: FlavorVector {
+            intensity: totals[0] / total_weight,
+            color: totals[1] / total_weight,
+            sweet: totals[2] / total_weight,
+            sour: totals[3] / total_weight,
+            salty: totals[4] / total_weight,
+        },
+        components: selected
+            .into_iter()
+            .map(|(ingredient_id, weight)| PreferenceSourceComponent {
+                ingredient_id,
+                percentage: weight / total_weight * 100.0,
+            })
+            .collect(),
     }
 }
 
@@ -140,9 +171,18 @@ pub struct AdminFishRecord {
     pub min_weight_kg: f64,
     pub max_weight_kg: f64,
     pub preference: FlavorVector,
+    pub preference_sources: Vec<AdminPreferenceSource>,
     pub similarity: f64,
     pub catch_probability: f64,
     pub enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminPreferenceSource {
+    pub ingredient_id: i64,
+    pub ingredient_name: String,
+    pub percentage: f64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -274,7 +314,8 @@ impl SqliteStore {
                  sweet REAL NOT NULL CHECK (sweet BETWEEN 0 AND 1),
                  sour REAL NOT NULL CHECK (sour BETWEEN 0 AND 1),
                  salty REAL NOT NULL CHECK (salty BETWEEN 0 AND 1),
-                 generation_version INTEGER NOT NULL DEFAULT 2,
+                 generation_version INTEGER NOT NULL DEFAULT 3,
+                 source_components_json TEXT NOT NULL DEFAULT '[]',
                  PRIMARY KEY (local_date, fish_species_id)
              );
 
@@ -338,6 +379,12 @@ impl SqliteStore {
             "fish_species",
             "rarity",
             "TEXT NOT NULL DEFAULT 'common'",
+        )?;
+        Self::ensure_column(
+            &connection,
+            "daily_fish_preferences",
+            "source_components_json",
+            "TEXT NOT NULL DEFAULT '[]'",
         )?;
         Self::ensure_column(
             &connection,
@@ -817,35 +864,60 @@ impl SqliteStore {
             .collect()
     }
 
-    pub fn save_custom_bait_recipe(
+    pub fn load_bait_recipes(&self) -> rusqlite::Result<Vec<(i64, String)>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare("SELECT id, name FROM bait_recipes ORDER BY id")?;
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect()
+    }
+
+    pub fn save_bait_recipe(
         &self,
+        recipe_id: Option<i64>,
         name: &str,
         components: &[(i64, f64)],
-    ) -> rusqlite::Result<BaitProfile> {
-        {
+    ) -> rusqlite::Result<(i64, BaitProfile)> {
+        let target_id = {
             let mut connection = self.connection.lock().expect("sqlite connection poisoned");
             let transaction = connection.transaction()?;
+            let target_id = match recipe_id.filter(|id| *id > 1) {
+                Some(id) => {
+                    if transaction.execute(
+                        "UPDATE bait_recipes SET name = ?1 WHERE id = ?2",
+                        params![name, id],
+                    )? != 1
+                    {
+                        return Err(rusqlite::Error::QueryReturnedNoRows);
+                    }
+                    id
+                }
+                None => {
+                    transaction.execute("INSERT INTO bait_recipes (name) VALUES (?1)", [name])?;
+                    transaction.last_insert_rowid()
+                }
+            };
             transaction.execute(
-                "INSERT INTO bait_recipes (id, name) VALUES (2, ?1)
-                 ON CONFLICT(id) DO UPDATE SET name = excluded.name",
-                [name],
+                "DELETE FROM bait_recipe_components WHERE recipe_id = ?1",
+                [target_id],
             )?;
-            transaction.execute("DELETE FROM bait_recipe_components WHERE recipe_id = 2", [])?;
             for (ingredient_id, percentage) in components {
                 let inserted = transaction.execute(
                     "INSERT INTO bait_recipe_components
                          (recipe_id, ingredient_id, percentage)
-                     SELECT 2, id, ?2 FROM bait_ingredients
-                     WHERE id = ?1 AND enabled = 1",
-                    params![ingredient_id, percentage],
+                     SELECT ?1, id, ?3 FROM bait_ingredients
+                     WHERE id = ?2 AND enabled = 1",
+                    params![target_id, ingredient_id, percentage],
                 )?;
                 if inserted != 1 {
                     return Err(rusqlite::Error::QueryReturnedNoRows);
                 }
             }
             transaction.commit()?;
-        }
-        self.load_bait_profile(2)
+            target_id
+        };
+        self.load_bait_profile(target_id)
+            .map(|profile| (target_id, profile))
     }
 
     pub fn load_fish_records(&self) -> rusqlite::Result<Vec<FishRecord>> {
@@ -935,20 +1007,23 @@ impl SqliteStore {
         };
         let ingredient_flavors = {
             let mut statement = connection.prepare(
-                "SELECT intensity, color, sweet, sour, salty
+                "SELECT id, intensity, color, sweet, sour, salty
                  FROM bait_ingredients
                  WHERE enabled = 1
                  ORDER BY id",
             )?;
             statement
                 .query_map([], |row| {
-                    Ok(FlavorVector {
-                        intensity: row.get(0)?,
-                        color: row.get(1)?,
-                        sweet: row.get(2)?,
-                        sour: row.get(3)?,
-                        salty: row.get(4)?,
-                    })
+                    Ok((
+                        row.get(0)?,
+                        FlavorVector {
+                            intensity: row.get(1)?,
+                            color: row.get(2)?,
+                            sweet: row.get(3)?,
+                            sour: row.get(4)?,
+                            salty: row.get(5)?,
+                        },
+                    ))
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
@@ -960,20 +1035,23 @@ impl SqliteStore {
         )?;
         for fish_id in fish_ids {
             let preference = generate_reachable_fish_preference(&ingredient_flavors, rng);
+            let source_components_json = serde_json::to_string(&preference.components)
+                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
             transaction.execute(
                 "INSERT OR IGNORE INTO daily_fish_preferences (
                      local_date, fish_species_id, intensity, color, sweet, sour, salty,
-                     generation_version
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                     generation_version, source_components_json
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     local_date,
                     fish_id,
-                    preference.intensity,
-                    preference.color,
-                    preference.sweet,
-                    preference.sour,
-                    preference.salty,
+                    preference.flavor.intensity,
+                    preference.flavor.color,
+                    preference.flavor.sweet,
+                    preference.flavor.sour,
+                    preference.flavor.salty,
                     DAILY_PREFERENCE_GENERATION_VERSION,
+                    source_components_json,
                 ],
             )?;
         }
@@ -1164,11 +1242,19 @@ impl SqliteStore {
         local_date: &str,
     ) -> rusqlite::Result<Vec<AdminFishRecord>> {
         let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let ingredient_names: HashMap<i64, String> = {
+            let mut ingredient_statement =
+                connection.prepare("SELECT id, name FROM bait_ingredients ORDER BY id")?;
+            ingredient_statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<rusqlite::Result<HashMap<_, _>>>()?
+        };
         let mut statement = connection.prepare(
             "SELECT f.id, f.name, f.price_per_kg, f.rarity, f.minimum_similarity,
                     f.min_length_cm, f.max_length_cm, f.min_weight_kg, f.max_weight_kg,
                     COALESCE(p.intensity, 0), COALESCE(p.color, 0), COALESCE(p.sweet, 0),
-                    COALESCE(p.sour, 0), COALESCE(p.salty, 0), f.enabled
+                    COALESCE(p.sour, 0), COALESCE(p.salty, 0),
+                    COALESCE(p.source_components_json, '[]'), f.enabled
              FROM fish_species f
              LEFT JOIN daily_fish_preferences p
                ON p.fish_species_id = f.id AND p.local_date = ?1
@@ -1176,6 +1262,20 @@ impl SqliteStore {
         )?;
         statement
             .query_map([local_date], |row| {
+                let source_json: String = row.get(14)?;
+                let preference_sources =
+                    serde_json::from_str::<Vec<PreferenceSourceComponent>>(&source_json)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|source| AdminPreferenceSource {
+                            ingredient_id: source.ingredient_id,
+                            ingredient_name: ingredient_names
+                                .get(&source.ingredient_id)
+                                .cloned()
+                                .unwrap_or_else(|| format!("未知鱼饵 #{}", source.ingredient_id)),
+                            percentage: source.percentage,
+                        })
+                        .collect();
                 Ok(AdminFishRecord {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -1193,9 +1293,10 @@ impl SqliteStore {
                         sour: row.get(12)?,
                         salty: row.get(13)?,
                     },
+                    preference_sources,
                     similarity: 0.0,
                     catch_probability: 0.0,
-                    enabled: row.get::<_, i64>(14)? != 0,
+                    enabled: row.get::<_, i64>(15)? != 0,
                 })
             })?
             .collect()
@@ -1576,28 +1677,30 @@ mod tests {
 
     #[test]
     fn generated_fish_preferences_stay_within_bait_reachable_ranges() {
-        let ingredients: Vec<FlavorVector> = bait_ingredient_seeds()
+        let ingredients: Vec<(i64, FlavorVector)> = bait_ingredient_seeds()
             .into_iter()
-            .map(|ingredient| ingredient.flavor)
+            .map(|ingredient| (ingredient.id, ingredient.flavor))
             .collect();
-        let maxima = ingredients.iter().fold([0.0_f64; 5], |mut values, flavor| {
-            values[0] = values[0].max(flavor.intensity);
-            values[1] = values[1].max(flavor.color);
-            values[2] = values[2].max(flavor.sweet);
-            values[3] = values[3].max(flavor.sour);
-            values[4] = values[4].max(flavor.salty);
-            values
-        });
+        let maxima = ingredients
+            .iter()
+            .fold([0.0_f64; 5], |mut values, (_, flavor)| {
+                values[0] = values[0].max(flavor.intensity);
+                values[1] = values[1].max(flavor.color);
+                values[2] = values[2].max(flavor.sweet);
+                values[3] = values[3].max(flavor.sour);
+                values[4] = values[4].max(flavor.salty);
+                values
+            });
         let mut rng = StdRng::seed_from_u64(2026);
 
         for _ in 0..2_000 {
             let preference = generate_reachable_fish_preference(&ingredients, &mut rng);
             for (value, maximum) in [
-                preference.intensity,
-                preference.color,
-                preference.sweet,
-                preference.sour,
-                preference.salty,
+                preference.flavor.intensity,
+                preference.flavor.color,
+                preference.flavor.sweet,
+                preference.flavor.sour,
+                preference.flavor.salty,
             ]
             .into_iter()
             .zip(maxima)
@@ -1605,6 +1708,23 @@ mod tests {
                 assert!(value >= -f64::EPSILON && value <= maximum + f64::EPSILON * 8.0);
                 assert!(value < 1.0);
             }
+            assert!((1..=3).contains(&preference.components.len()));
+            assert!(
+                (preference
+                    .components
+                    .iter()
+                    .map(|item| item.percentage)
+                    .sum::<f64>()
+                    - 100.0)
+                    .abs()
+                    < 0.000_001
+            );
+            let unique_ids: std::collections::HashSet<_> = preference
+                .components
+                .iter()
+                .map(|item| item.ingredient_id)
+                .collect();
+            assert_eq!(unique_ids.len(), preference.components.len());
         }
     }
 
@@ -1635,28 +1755,37 @@ mod tests {
             store
                 .ensure_daily_preferences("2026-08-26", &mut rng)
                 .expect("regenerate legacy preferences");
-            let (version, intensity, color, sweet, sour, salty): (i64, f64, f64, f64, f64, f64) =
-                store
-                    .connection
-                    .lock()
-                    .expect("sqlite connection")
-                    .query_row(
-                        "SELECT generation_version, intensity, color, sweet, sour, salty
+            let (version, intensity, color, sweet, sour, salty, source_json): (
+                i64,
+                f64,
+                f64,
+                f64,
+                f64,
+                f64,
+                String,
+            ) = store
+                .connection
+                .lock()
+                .expect("sqlite connection")
+                .query_row(
+                    "SELECT generation_version, intensity, color, sweet, sour, salty,
+                                source_components_json
                          FROM daily_fish_preferences
                          WHERE local_date = '2026-08-26' AND fish_species_id = 1",
-                        [],
-                        |row| {
-                            Ok((
-                                row.get(0)?,
-                                row.get(1)?,
-                                row.get(2)?,
-                                row.get(3)?,
-                                row.get(4)?,
-                                row.get(5)?,
-                            ))
-                        },
-                    )
-                    .expect("load regenerated preference");
+                    [],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                        ))
+                    },
+                )
+                .expect("load regenerated preference");
 
             assert_eq!(version, DAILY_PREFERENCE_GENERATION_VERSION);
             assert!(
@@ -1664,6 +1793,9 @@ mod tests {
                     .into_iter()
                     .all(|value| value < 1.0)
             );
+            let sources: Vec<PreferenceSourceComponent> =
+                serde_json::from_str(&source_json).expect("parse preference sources");
+            assert!(!sources.is_empty());
         }
         std::fs::remove_file(database_path).expect("remove preference migration database");
     }
@@ -1850,6 +1982,9 @@ mod tests {
         let second_preferences = store
             .load_fish_profiles("2026-08-18")
             .expect("load stable preferences");
+        let admin_records = store
+            .load_admin_fish_records("2026-08-18")
+            .expect("load preference sources for admin");
         let test_outcome = RoundOutcome::Missed {
             reason: "测试空军".to_owned(),
             best_similarity: 0.7,
@@ -1896,8 +2031,20 @@ mod tests {
         assert_eq!(outcome_catalog.misses.len(), 30);
         assert_eq!(outcome_catalog.features.len(), 30);
         assert_eq!(bait.name, "综合试钓饵");
-        assert_eq!(first_preferences.len(), 43);
-        assert_eq!(second_preferences.len(), 43);
+        assert_eq!(first_preferences.len(), 53);
+        assert_eq!(second_preferences.len(), 53);
+        assert_eq!(admin_records.len(), 53);
+        assert!(!admin_records[0].preference_sources.is_empty());
+        assert!(
+            (admin_records[0]
+                .preference_sources
+                .iter()
+                .map(|source| source.percentage)
+                .sum::<f64>()
+                - 100.0)
+                .abs()
+                < 0.000_001
+        );
         assert_eq!(
             first_preferences[0].preference,
             second_preferences[0].preference
@@ -1923,18 +2070,32 @@ mod tests {
             0.0
         );
 
-        let profile = store
-            .save_custom_bait_recipe("两甜一酸", &[(1, 20.0), (4, 10.0)])
+        let (first_recipe_id, profile) = store
+            .save_bait_recipe(None, "两甜一酸", &[(1, 20.0), (4, 10.0)])
             .expect("save custom bait");
         let components = store
-            .load_recipe_components(2)
+            .load_recipe_components(first_recipe_id)
             .expect("load recipe components");
         assert_eq!(profile.name, "两甜一酸");
         assert_eq!(components, vec![(1, 20.0), (4, 10.0)]);
         assert!((0.0..=1.0).contains(&profile.flavor.sweet));
+        let (second_recipe_id, _) = store
+            .save_bait_recipe(None, "浓香试验", &[(2, 3.0), (5, 7.0)])
+            .expect("save second custom bait");
+        assert_ne!(first_recipe_id, second_recipe_id);
+        assert_eq!(
+            store
+                .load_recipe_components(first_recipe_id)
+                .expect("keep first recipe"),
+            vec![(1, 20.0), (4, 10.0)]
+        );
+        assert_eq!(
+            store.load_bait_recipes().expect("load saved recipes").len(),
+            3
+        );
         assert!(
             store
-                .save_custom_bait_recipe("无效配方", &[(999, 1.0)])
+                .save_bait_recipe(None, "无效配方", &[(999, 1.0)])
                 .is_err()
         );
 
@@ -1961,7 +2122,7 @@ mod tests {
             )
             .expect("save caught outcome");
         let records = store.load_fish_records().expect("load fish records");
-        assert_eq!(records.len(), 43);
+        assert_eq!(records.len(), 53);
         assert_eq!(records[0].rarity, FishRarity::Common);
         assert_eq!(records[23].rarity, FishRarity::Legendary);
         assert_eq!(records[0].caught_count, 1);
@@ -2033,11 +2194,12 @@ mod tests {
 
     #[test]
     fn legendary_treasure_stays_hidden_until_discovered() {
+        assert_eq!(treasure_reward_skin_id(6), Some("treasure_perfume"));
         let store = SqliteStore::open(Path::new(":memory:")).expect("open in-memory database");
         let hidden = store
             .load_treasure_records()
             .expect("load hidden treasures");
-        assert_eq!(hidden.len(), 5);
+        assert_eq!(hidden.len(), 6);
         assert!(hidden.iter().all(|treasure| !treasure.discovered));
         assert!(hidden.iter().all(|treasure| treasure.name == "？？？"));
 
@@ -2272,7 +2434,7 @@ mod tests {
             let fish = reopened
                 .load_admin_fish_records("2026-08-24")
                 .expect("reload admin fish");
-            assert_eq!(fish.len(), 43);
+            assert_eq!(fish.len(), 53);
             assert!((0.0..=1.0).contains(&fish[0].preference.intensity));
         }
 

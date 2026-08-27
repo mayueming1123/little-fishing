@@ -79,9 +79,16 @@ export interface BaitRecipeComponent {
   percentage: number;
 }
 
+export interface BaitRecipeOption {
+  id: number;
+  name: string;
+}
+
 export interface BaitEditorData {
   ingredients: BaitIngredient[];
+  recipeId: number;
   recipeName: string;
+  recipes: BaitRecipeOption[];
   components: BaitRecipeComponent[];
   canEdit: boolean;
 }
@@ -132,6 +139,11 @@ export interface AdminFishRecord {
     sour: number;
     salty: number;
   };
+  preferenceSources: Array<{
+    ingredientId: number;
+    ingredientName: string;
+    percentage: number;
+  }>;
   similarity: number;
   catchProbability: number;
   enabled: boolean;
@@ -175,7 +187,7 @@ export interface FishingLogEntry {
 export type MainSection = "fishing" | "basket" | "log" | "fish" | "bait" | "store" | "settings";
 
 export type AppTheme = "system" | "light" | "dark";
-export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal" | "samoyed" | "golden_retriever" | "treasure_pearl" | "treasure_crystal_shoe" | "treasure_seal" | "treasure_wood_sword" | "treasure_martial_manual" | "special_water_monster" | "special_pizza_rabbit" | "special_spaghetti_dog";
+export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal" | "samoyed" | "golden_retriever" | "treasure_pearl" | "treasure_crystal_shoe" | "treasure_seal" | "treasure_wood_sword" | "treasure_martial_manual" | "treasure_perfume" | "special_water_monster" | "special_pizza_rabbit" | "special_spaghetti_dog" | "tom";
 
 export interface SkinStoreState {
   money: number;

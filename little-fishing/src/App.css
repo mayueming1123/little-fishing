@@ -329,17 +329,24 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 
 .bait-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(270px, .65fr); gap: 16px; align-items: start; }
 .field-label { display: grid; gap: 7px; color: #365d5e; font-size: 12px; font-weight: 650; }
-.field-label input, .ingredient-row input {
+.field-label input, .field-label select, .ingredient-row input {
   width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 9px;
   color: var(--ink); background: rgba(255,255,255,.72); outline: none;
 }
-.field-label input { padding: 10px 11px; }
-.field-label input:focus, .ingredient-row input:focus { border-color: #72a4a0; box-shadow: 0 0 0 3px rgba(76,155,145,.12); }
+.field-label input, .field-label select { padding: 10px 11px; }
+.field-label input:focus, .field-label select:focus, .ingredient-row input:focus { border-color: #72a4a0; box-shadow: 0 0 0 3px rgba(76,155,145,.12); }
+.bait-name-field { margin-top: 12px; }
+.bait-save-actions { display: grid; gap: 8px; }
+.admin-preference-sources { display: flex; flex-wrap: wrap; min-width: 150px; gap: 5px; }
+.admin-preference-sources span { padding: 3px 6px; border-radius: 999px; background: rgba(76,155,145,.12); white-space: nowrap; }
 .ingredient-list { display: grid; gap: 8px; margin-top: 16px; }
 .ingredient-row {
   display: grid; grid-template-columns: minmax(0, 1fr) 98px 54px; align-items: center; gap: 10px;
   padding: 11px 12px; border: 1px solid #e0e9e4; border-radius: 11px; background: var(--paper-soft);
 }
+.ingredient-identity { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.ingredient-identity > div { min-width: 0; }
+.pixel-bait-icon { width: 42px; height: 42px; flex: 0 0 42px; image-rendering: pixelated; filter: drop-shadow(0 2px 2px rgba(50,78,70,.12)); }
 .ingredient-row strong { display: block; color: #34585a; font-size: 13px; }
 .ingredient-row small { display: block; margin-top: 4px; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .ingredient-row label { position: relative; display: block; }
@@ -572,7 +579,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
   :root:not([data-theme="light"]) .hero-card, :root:not([data-theme="light"]) .metric-card, :root:not([data-theme="light"]) .paper-card, :root:not([data-theme="light"]) .panel-paper, :root:not([data-theme="light"]) .fish-record-card, :root:not([data-theme="light"]) .treasure-card, :root:not([data-theme="light"]) .basket-card, :root:not([data-theme="light"]) .fishing-log-card, :root:not([data-theme="light"]) .player-summary-grid article, :root:not([data-theme="light"]) .store-balance article, :root:not([data-theme="light"]) .store-card, :root:not([data-theme="light"]) .settings-save-card { background-color: rgba(28,45,46,.97); }
   :root:not([data-theme="light"]) .player-summary-grid article.has-pending { background: rgba(92,70,31,.55); }
   :root:not([data-theme="light"]) h1, :root:not([data-theme="light"]) .hero-card h2, :root:not([data-theme="light"]) .section-intro h2, :root:not([data-theme="light"]) .fish-card-head h3, :root:not([data-theme="light"]) .basket-card h3, :root:not([data-theme="light"]) .basket-summary strong, :root:not([data-theme="light"]) .countdown strong, :root:not([data-theme="light"]) .metric-card strong, :root:not([data-theme="light"]) .paper-card h3, :root:not([data-theme="light"]) .panel-head strong, :root:not([data-theme="light"]) .panel-time, :root:not([data-theme="light"]) .detail-row strong, :root:not([data-theme="light"]) .settings-toggle strong, :root:not([data-theme="light"]) .setting-copy strong, :root:not([data-theme="light"]) .settings-save-card strong { color: #d7ece7; }
-  :root:not([data-theme="light"]) .field-label input, :root:not([data-theme="light"]) .ingredient-row input { background: #253b3c; }
+  :root:not([data-theme="light"]) .field-label input, :root:not([data-theme="light"]) .field-label select, :root:not([data-theme="light"]) .ingredient-row input { background: #253b3c; }
   :root:not([data-theme="light"]) .quiet-button, :root:not([data-theme="light"]) .panel-action, :root:not([data-theme="light"]) .record-filter button, :root:not([data-theme="light"]) .theme-options button, :root:not([data-theme="light"]) .skin-option { background: #253b3c; color: #d6e9e4; }
   :root:not([data-theme="light"]) .record-filter button.active { background: var(--lake); color: white; }
   :root:not([data-theme="light"]) .theme-options button.active { background: var(--lake); color: white; }
@@ -584,7 +591,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 :root[data-theme="dark"] .hero-card, :root[data-theme="dark"] .metric-card, :root[data-theme="dark"] .paper-card, :root[data-theme="dark"] .panel-paper, :root[data-theme="dark"] .fish-record-card, :root[data-theme="dark"] .treasure-card, :root[data-theme="dark"] .basket-card, :root[data-theme="dark"] .fishing-log-card, :root[data-theme="dark"] .player-summary-grid article, :root[data-theme="dark"] .store-balance article, :root[data-theme="dark"] .store-card, :root[data-theme="dark"] .settings-save-card { background-color: rgba(28,45,46,.97); }
 :root[data-theme="dark"] .player-summary-grid article.has-pending { background: rgba(92,70,31,.55); }
 :root[data-theme="dark"] h1, :root[data-theme="dark"] .hero-card h2, :root[data-theme="dark"] .section-intro h2, :root[data-theme="dark"] .fish-card-head h3, :root[data-theme="dark"] .basket-card h3, :root[data-theme="dark"] .basket-summary strong, :root[data-theme="dark"] .countdown strong, :root[data-theme="dark"] .metric-card strong, :root[data-theme="dark"] .paper-card h3, :root[data-theme="dark"] .panel-head strong, :root[data-theme="dark"] .panel-time, :root[data-theme="dark"] .detail-row strong, :root[data-theme="dark"] .settings-toggle strong, :root[data-theme="dark"] .setting-copy strong, :root[data-theme="dark"] .settings-save-card strong { color: #d7ece7; }
-:root[data-theme="dark"] .field-label input, :root[data-theme="dark"] .ingredient-row input { background: #253b3c; }
+:root[data-theme="dark"] .field-label input, :root[data-theme="dark"] .field-label select, :root[data-theme="dark"] .ingredient-row input { background: #253b3c; }
 :root[data-theme="dark"] .quiet-button, :root[data-theme="dark"] .panel-action, :root[data-theme="dark"] .record-filter button, :root[data-theme="dark"] .theme-options button, :root[data-theme="dark"] .skin-option { background: #253b3c; color: #d6e9e4; }
 :root[data-theme="dark"] .record-filter button.active { background: var(--lake); color: white; }
 :root[data-theme="dark"] .theme-options button.active { background: var(--lake); color: white; }

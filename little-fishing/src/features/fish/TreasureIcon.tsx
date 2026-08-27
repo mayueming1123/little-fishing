@@ -26,9 +26,15 @@ export function TreasureIcon({ treasureId, discovered, label }: { treasureId: nu
     <path d="M37 25l10-2m-16 9-8-2m17-9 2-9" fill="none" stroke="#4d752f" strokeWidth="5" strokeLinecap="round" />
     <path d="M10 48l10 9" stroke="#725033" strokeWidth="7" strokeLinecap="round" />
   </svg>;
-  return <svg {...common}>
+  if (treasureId === 5) return <svg {...common}>
     <path d="M9 14c10-4 18-2 23 3v39c-6-5-14-7-23-3zm46 0c-10-4-18-2-23 3v39c6-5 14-7 23-3z" fill="#d9bd77" stroke="#705334" strokeWidth="3" />
     <path d="M17 25h10m-10 8h10m10-8h10m-10 8h10" stroke="#8b302a" strokeWidth="3" />
     <path d="M32 18v37" stroke="#705334" strokeWidth="3" />
+  </svg>;
+  return <svg {...common}>
+    <path d="M20 19h24v9c5 4 8 10 8 18 0 7-6 12-13 12H25c-7 0-13-5-13-12 0-8 3-14 8-18z" fill="#f2a5bd" stroke="#8f5368" strokeWidth="3" />
+    <path d="M25 10h14v10H25z" fill="#d8b56f" stroke="#72532e" strokeWidth="3" />
+    <path d="M18 42c8-7 20-7 28 0" fill="none" stroke="#fff1f5" strokeWidth="4" strokeLinecap="round" />
+    <circle cx="32" cy="43" r="4" fill="#f8d36a" />
   </svg>;
 }

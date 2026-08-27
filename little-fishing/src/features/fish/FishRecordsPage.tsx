@@ -1,16 +1,28 @@
 import { useEffect, useState } from "react";
-import type { FishRecord, TreasureRecord } from "../../domain/prototype";
+import type { FishRarity, FishRecord, TreasureRecord } from "../../domain/prototype";
 import { getFishRecords, getTreasureRecords } from "../../ipc/client";
 import { PixelFishIcon, specialFishDescriptions } from "./PixelFishIcon";
 import { FishRarityBadge } from "./FishRarityBadge";
 import { TreasureIcon } from "./TreasureIcon";
 
 type RecordFilter = "all" | "caught" | "uncaught";
+type RarityFilter = "all" | FishRarity;
+
+const rarityFilters: Array<{ value: RarityFilter; label: string }> = [
+  { value: "all", label: "全部稀有度" },
+  { value: "common", label: "普通" },
+  { value: "uncommon", label: "少见" },
+  { value: "rare", label: "稀有" },
+  { value: "epic", label: "史诗" },
+  { value: "legendary", label: "传说" },
+  { value: "special", label: "特殊" },
+];
 
 export function FishRecordsPage() {
   const [records, setRecords] = useState<FishRecord[]>([]);
   const [treasures, setTreasures] = useState<TreasureRecord[]>([]);
   const [filter, setFilter] = useState<RecordFilter>("all");
+  const [rarityFilter, setRarityFilter] = useState<RarityFilter>("all");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     void Promise.all([getFishRecords(), getTreasureRecords()])
@@ -24,9 +36,10 @@ export function FishRecordsPage() {
   const caughtCount = records.filter((record) => record.caughtCount > 0).length;
   const uncaughtCount = records.length - caughtCount;
   const visibleRecords = records.filter((record) => {
-    if (filter === "caught") return record.caughtCount > 0;
-    if (filter === "uncaught") return record.caughtCount === 0;
-    return true;
+    const matchesCatch = filter === "caught" ? record.caughtCount > 0
+      : filter === "uncaught" ? record.caughtCount === 0
+        : true;
+    return matchesCatch && (rarityFilter === "all" || record.rarity === rarityFilter);
   });
 
   return <section className="section-page">
@@ -36,6 +49,12 @@ export function FishRecordsPage() {
       <button className={filter === "all" ? "active" : ""} aria-pressed={filter === "all"} onClick={() => setFilter("all")}>全部 {records.length}</button>
       <button className={filter === "caught" ? "active" : ""} aria-pressed={filter === "caught"} onClick={() => setFilter("caught")}>已钓到 {caughtCount}</button>
       <button className={filter === "uncaught" ? "active" : ""} aria-pressed={filter === "uncaught"} onClick={() => setFilter("uncaught")}>未钓到 {uncaughtCount}</button>
+    </div>
+    <div className="record-filter rarity-filter" role="group" aria-label="按稀有度筛选">
+      {rarityFilters.map((item) => {
+        const count = item.value === "all" ? records.length : records.filter((record) => record.rarity === item.value).length;
+        return <button className={rarityFilter === item.value ? "active" : ""} aria-pressed={rarityFilter === item.value} onClick={() => setRarityFilter(item.value)} key={item.value}>{item.label} {count}</button>;
+      })}
     </div>
     {visibleRecords.length === 0
       ? <div className="paper-card empty-log">这个筛选条件下暂时没有鱼。换个标签，再看看水下还有谁。</div>

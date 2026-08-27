@@ -101,9 +101,9 @@ const FISH_FEATURE_DESCRIPTIONS: [&str; 30] = [
 ];
 
 const TREASURE_ROLL_SCALE: u16 = 10_000;
-const TREASURE_WINNING_ROLLS: u16 = 30;
+const TARGET_TREASURE_PROBABILITY_PER_ROUND: f64 = 0.005;
 const SPECIAL_FISH_ROLL_SCALE: u8 = 100;
-const SPECIAL_FISH_WINNING_ROLLS: u8 = 5;
+const SPECIAL_FISH_WINNING_ROLLS: u8 = 2;
 const MIN_CATCH_PROBABILITY: f64 = 0.10;
 const MAX_CATCH_PROBABILITY: f64 = 0.70;
 const RARITY_READINESS_FLOOR: f64 = 0.20;
@@ -394,6 +394,11 @@ pub fn legendary_treasure_seeds() -> Vec<LegendaryTreasureSeed> {
             name: "武功秘籍",
             description: "封面只剩下“神功”两个字，内页大半已经粘在一起。勉强翻开的那页认真讲解了如何保持呼吸平稳。",
         },
+        LegendaryTreasureSeed {
+            id: 6,
+            name: "包装精致的香水",
+            description: "精致的瓶身和丝带竟然都完好无损，轻轻一晃还能闻见淡淡花香。它出现在水底的原因，大概和香调一样难以解释。",
+        },
     ]
 }
 
@@ -406,6 +411,10 @@ pub fn fish_species_seeds() -> Vec<FishSpeciesSeed> {
         "https://nyncj.wuhan.gov.cn/zwgk_25/fdzdgknr/snsj/scppfjg/202506/t20250609_2593098.html";
     let xiamen = "https://hyj.xm.gov.cn/bmfw/scjg/202506/t20250603_2936791.htm";
     let xiamen_aug = "https://hyj.xm.gov.cn/bmfw/scjg/202508/t20250820_2951405.htm";
+    let quanzhou_2023 = "https://nyncj.quanzhou.gov.cn/xxgk/scjc/202307/t20230721_2906556.htm";
+    let quanzhou_2020 = "https://nyncj.quanzhou.gov.cn/xxgk/scjc/202007/t20200703_2379453.htm";
+    let quanzhou_2025_q3 = "https://nyncj.quanzhou.gov.cn/xxgk/scjc/202511/t20251104_3227407.htm";
+    let moa_2019 = "https://yyj.moa.gov.cn/gzdt/201904/t20190418_6193955.htm";
     vec![
         FishSpeciesSeed {
             id: 1,
@@ -880,6 +889,116 @@ pub fn fish_species_seeds() -> Vec<FishSpeciesSeed> {
             price_source_url: "game://special-fish",
             price_source_date: "奇想定价",
         },
+        FishSpeciesSeed {
+            id: 44,
+            name: "小黄鱼",
+            price_per_kg: 17.0,
+            min_length_cm: 15.0,
+            max_length_cm: 45.0,
+            min_weight_kg: 0.05,
+            max_weight_kg: 1.2,
+            price_source_url: quanzhou_2023,
+            price_source_date: "2023-06",
+        },
+        FishSpeciesSeed {
+            id: 45,
+            name: "鲐鱼",
+            price_per_kg: 4.6,
+            min_length_cm: 15.0,
+            max_length_cm: 60.0,
+            min_weight_kg: 0.08,
+            max_weight_kg: 3.0,
+            price_source_url: moa_2019,
+            price_source_date: "2019-04",
+        },
+        FishSpeciesSeed {
+            id: 46,
+            name: "梅童鱼",
+            price_per_kg: 14.0,
+            min_length_cm: 8.0,
+            max_length_cm: 35.0,
+            min_weight_kg: 0.03,
+            max_weight_kg: 0.8,
+            price_source_url: quanzhou_2020,
+            price_source_date: "2020-06",
+        },
+        FishSpeciesSeed {
+            id: 47,
+            name: "鲟鱼",
+            price_per_kg: 29.35,
+            min_length_cm: 50.0,
+            max_length_cm: 250.0,
+            min_weight_kg: 2.0,
+            max_weight_kg: 120.0,
+            price_source_url: guizhou,
+            price_source_date: "2025-12",
+        },
+        FishSpeciesSeed {
+            id: 48,
+            name: "牙鲆",
+            price_per_kg: 32.0,
+            min_length_cm: 20.0,
+            max_length_cm: 100.0,
+            min_weight_kg: 0.2,
+            max_weight_kg: 12.0,
+            price_source_url: quanzhou_2025_q3,
+            price_source_date: "2025-Q3",
+        },
+        FishSpeciesSeed {
+            id: 49,
+            name: "真鲷",
+            price_per_kg: 42.0,
+            min_length_cm: 20.0,
+            max_length_cm: 100.0,
+            min_weight_kg: 0.2,
+            max_weight_kg: 10.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 50,
+            name: "花鲈",
+            price_per_kg: 52.0,
+            min_length_cm: 20.0,
+            max_length_cm: 120.0,
+            min_weight_kg: 0.3,
+            max_weight_kg: 15.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 51,
+            name: "宽额鲈",
+            price_per_kg: 72.0,
+            min_length_cm: 25.0,
+            max_length_cm: 150.0,
+            min_weight_kg: 0.4,
+            max_weight_kg: 30.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 52,
+            name: "舌鳎",
+            price_per_kg: 86.0,
+            min_length_cm: 15.0,
+            max_length_cm: 70.0,
+            min_weight_kg: 0.1,
+            max_weight_kg: 5.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
+        FishSpeciesSeed {
+            id: 53,
+            name: "波路豆齿蛇鳗",
+            price_per_kg: 280.0,
+            min_length_cm: 50.0,
+            max_length_cm: 250.0,
+            min_weight_kg: 0.8,
+            max_weight_kg: 30.0,
+            price_source_url: xiamen_aug,
+            price_source_date: "2025-08-20",
+        },
     ]
 }
 
@@ -1228,8 +1347,15 @@ pub fn bait_similarity(bait: FlavorVector, preference: FlavorVector) -> f64 {
     (1.0 - (squared_distance / 5.0).sqrt()).clamp(0.0, 1.0)
 }
 
-fn treasure_roll_succeeds(roll: u16) -> bool {
-    roll < TREASURE_WINNING_ROLLS
+fn treasure_winning_rolls(miss_probability: f64) -> u16 {
+    ((TARGET_TREASURE_PROBABILITY_PER_ROUND / miss_probability.max(f64::EPSILON))
+        * f64::from(TREASURE_ROLL_SCALE))
+    .round()
+    .clamp(0.0, f64::from(TREASURE_ROLL_SCALE)) as u16
+}
+
+fn treasure_roll_succeeds(roll: u16, miss_probability: f64) -> bool {
+    roll < treasure_winning_rolls(miss_probability)
 }
 
 fn special_fish_roll_succeeds(roll: u8) -> bool {
@@ -1363,10 +1489,11 @@ pub fn fish_catch_chances(bait: &BaitProfile, fish: &[FishProfile]) -> Vec<FishC
 
 fn roll_legendary_treasure<R: Rng + ?Sized>(
     best_similarity: f64,
+    miss_probability: f64,
     rng: &mut R,
 ) -> Option<RoundOutcome> {
     let roll = rng.random_range(0..TREASURE_ROLL_SCALE);
-    if !treasure_roll_succeeds(roll) {
+    if !treasure_roll_succeeds(roll, miss_probability) {
         return None;
     }
     let treasures = legendary_treasure_seeds();
@@ -1396,7 +1523,7 @@ pub fn resolve_round<R: Rng + ?Sized>(
     let candidates = catch_candidates(bait, fish);
 
     if candidates.is_empty() {
-        if let Some(treasure) = roll_legendary_treasure(best_similarity, rng) {
+        if let Some(treasure) = roll_legendary_treasure(best_similarity, 1.0, rng) {
             return treasure;
         }
         return RoundOutcome::Missed {
@@ -1408,7 +1535,9 @@ pub fn resolve_round<R: Rng + ?Sized>(
 
     let catch_probability = current_catch_probability(&candidates);
     if !rng.random_bool(catch_probability) {
-        if let Some(treasure) = roll_legendary_treasure(best_similarity, rng) {
+        if let Some(treasure) =
+            roll_legendary_treasure(best_similarity, 1.0 - catch_probability, rng)
+        {
             return treasure;
         }
         return RoundOutcome::Missed {
@@ -1588,8 +1717,8 @@ mod tests {
             .expect("special chance")
             .probability;
 
-        assert!((regular_probability - 0.665).abs() < 0.000_001);
-        assert!((special_probability - 0.035).abs() < 0.000_001);
+        assert!((regular_probability - 0.686).abs() < 0.000_001);
+        assert!((special_probability - 0.014).abs() < 0.000_001);
         assert!((regular_probability + special_probability - 0.70).abs() < 0.000_001);
     }
 
@@ -1692,7 +1821,7 @@ mod tests {
                 counts[index] += 1;
                 counts
             });
-        assert_eq!(counts, [13, 9, 8, 6, 4, 3]);
+        assert_eq!(counts, [16, 11, 10, 8, 5, 3]);
     }
 
     #[test]
@@ -1704,20 +1833,26 @@ mod tests {
     }
 
     #[test]
-    fn legendary_treasure_roll_is_exactly_point_three_percent() {
-        let winning_rolls = (0..TREASURE_ROLL_SCALE)
-            .filter(|roll| treasure_roll_succeeds(*roll))
-            .count();
-        assert_eq!(winning_rolls, 30);
-        assert_eq!(legendary_treasure_seeds().len(), 5);
+    fn legendary_treasure_roll_keeps_the_final_round_rate_near_half_a_percent() {
+        for miss_probability in [1.0, 0.9, 0.3] {
+            let winning_rolls = (0..TREASURE_ROLL_SCALE)
+                .filter(|roll| treasure_roll_succeeds(*roll, miss_probability))
+                .count();
+            let conditional_probability = winning_rolls as f64 / f64::from(TREASURE_ROLL_SCALE);
+            let final_probability = miss_probability * conditional_probability;
+            assert!((final_probability - 0.005).abs() <= 0.000_05);
+        }
+        assert_eq!(treasure_winning_rolls(1.0), 50);
+        assert_eq!(treasure_winning_rolls(0.3), 167);
+        assert_eq!(legendary_treasure_seeds().len(), 6);
     }
 
     #[test]
-    fn special_fish_roll_is_exactly_five_percent_of_successful_catches() {
+    fn special_fish_roll_is_exactly_two_percent_of_successful_catches() {
         let winning_rolls = (0..SPECIAL_FISH_ROLL_SCALE)
             .filter(|roll| special_fish_roll_succeeds(*roll))
             .count();
-        assert_eq!(winning_rolls, 5);
+        assert_eq!(winning_rolls, 2);
         let special_fish: Vec<FishSpeciesSeed> = fish_species_seeds()
             .into_iter()
             .filter(|fish| {

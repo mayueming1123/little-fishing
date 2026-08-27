@@ -51,6 +51,7 @@ fn shop_skin_price(value: &str) -> Option<f64> {
         "calico" => Some(10_000.0),
         "siamese" | "samoyed" | "golden_retriever" => Some(20_000.0),
         "silver_tabby" | "tuxedo" | "ragdoll" => Some(30_000.0),
+        "tom" => Some(50_000.0),
         _ => None,
     }
 }
@@ -73,9 +74,11 @@ fn is_known_skin_id(value: &str) -> bool {
             | "treasure_seal"
             | "treasure_wood_sword"
             | "treasure_martial_manual"
+            | "treasure_perfume"
             | "special_water_monster"
             | "special_pizza_rabbit"
             | "special_spaghetti_dog"
+            | "tom"
     )
 }
 
@@ -344,11 +347,19 @@ struct BaitRecipeComponentSnapshot {
     percentage: f64,
 }
 
+#[derive(Clone, Serialize)]
+struct BaitRecipeOptionSnapshot {
+    id: i64,
+    name: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BaitEditorData {
     ingredients: Vec<BaitIngredientInfo>,
+    recipe_id: i64,
     recipe_name: String,
+    recipes: Vec<BaitRecipeOptionSnapshot>,
     components: Vec<BaitRecipeComponentSnapshot>,
     can_edit: bool,
 }
@@ -663,6 +674,7 @@ fn resolve_current_round(
 }
 
 fn show_main(app: &AppHandle) {
+    clear_bobber_alert(app);
     if let Some(panel) = app.get_webview_window("panel") {
         let _ = panel.hide();
     }
@@ -1078,9 +1090,18 @@ fn get_bait_editor_data(app: AppHandle) -> Result<BaitEditorData, String> {
             percentage,
         })
         .collect();
+    let recipes = persistence
+        .store
+        .load_bait_recipes()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|(id, name)| BaitRecipeOptionSnapshot { id, name })
+        .collect();
     Ok(BaitEditorData {
         ingredients,
+        recipe_id,
         recipe_name: profile.name,
+        recipes,
         components,
         can_edit: state.phase == FishingPhase::Stopped,
     })
@@ -1089,8 +1110,10 @@ fn get_bait_editor_data(app: AppHandle) -> Result<BaitEditorData, String> {
 #[tauri::command]
 fn save_bait_recipe(
     app: AppHandle,
+    recipe_id: Option<i64>,
     name: String,
     components: Vec<BaitRecipeComponentInput>,
+    save_as_new: bool,
 ) -> Result<PrototypeSnapshot, String> {
     let cleaned_name = name.trim();
     if cleaned_name.is_empty() || cleaned_name.chars().count() > 24 {
@@ -1117,11 +1140,50 @@ fn save_bait_recipe(
         if state.phase != FishingPhase::Stopped {
             return Err("请先停止钓鱼，再修改鱼饵配方".to_owned());
         }
+        let target_recipe_id = if save_as_new || recipe_id == Some(1) {
+            None
+        } else {
+            recipe_id
+        };
+        let (saved_recipe_id, profile) = persistence
+            .store
+            .save_bait_recipe(target_recipe_id, cleaned_name, &normalized_components)
+            .map_err(|error| {
+                let message = error.to_string();
+                if message.contains("UNIQUE constraint failed: bait_recipes.name") {
+                    "已有同名配方，请换一个名称".to_owned()
+                } else {
+                    message
+                }
+            })?;
+        state.selected_recipe_id = saved_recipe_id as u64;
+        state.selected_recipe_name = Some(profile.name);
+        state.selected_bait_flavor = Some(profile.flavor);
+        state.state_revision += 1;
+        save_state(&app, &state);
+        state.snapshot()
+    };
+    broadcast(&app, value.clone());
+    Ok(value)
+}
+
+#[tauri::command]
+fn select_bait_recipe(app: AppHandle, recipe_id: i64) -> Result<PrototypeSnapshot, String> {
+    if recipe_id <= 0 {
+        return Err("无效的鱼饵方案".to_owned());
+    }
+    let value = {
+        let persistence = app.state::<PersistenceState>();
+        let state = app.state::<PrototypeAppState>();
+        let mut state = state.0.lock().expect("prototype state poisoned");
+        if state.phase != FishingPhase::Stopped {
+            return Err("请先停止钓鱼，再切换鱼饵方案".to_owned());
+        }
         let profile = persistence
             .store
-            .save_custom_bait_recipe(cleaned_name, &normalized_components)
-            .map_err(|error| error.to_string())?;
-        state.selected_recipe_id = 2;
+            .load_bait_profile(recipe_id)
+            .map_err(|_| "找不到这个鱼饵方案".to_owned())?;
+        state.selected_recipe_id = recipe_id as u64;
         state.selected_recipe_name = Some(profile.name);
         state.selected_bait_flavor = Some(profile.flavor);
         state.state_revision += 1;
@@ -1451,8 +1513,12 @@ fn get_pending_bobber_alert(app: AppHandle) -> bool {
 }
 
 #[tauri::command]
-fn activate_bobber_alert(app: AppHandle) {
+fn dismiss_bobber_alert(app: AppHandle) {
     clear_bobber_alert(&app);
+}
+
+#[tauri::command]
+fn activate_bobber_alert(app: AppHandle) {
     show_main(&app);
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.emit(MAIN_NAVIGATE_EVENT, "fishing");
@@ -1611,6 +1677,7 @@ pub fn run() {
             stop_fishing,
             get_bait_editor_data,
             save_bait_recipe,
+            select_bait_recipe,
             get_fish_records,
             get_treasure_records,
             get_player_summary,
@@ -1634,6 +1701,7 @@ pub fn run() {
             request_app_exit,
             send_test_notification,
             get_pending_bobber_alert,
+            dismiss_bobber_alert,
             activate_bobber_alert,
         ])
         .build(tauri::generate_context!())
@@ -1660,11 +1728,14 @@ mod tests {
         assert_eq!(shop_skin_price("samoyed"), Some(20_000.0));
         assert_eq!(shop_skin_price("golden_retriever"), Some(20_000.0));
         assert_eq!(shop_skin_price("silver_tabby"), Some(30_000.0));
+        assert_eq!(shop_skin_price("tom"), Some(50_000.0));
         assert_eq!(shop_skin_price("orange"), None);
         assert_eq!(shop_skin_price("bengal"), None);
         assert_eq!(shop_skin_price("treasure_pearl"), None);
+        assert_eq!(shop_skin_price("treasure_perfume"), None);
         assert!(is_known_skin_id("treasure_pearl"));
         assert!(is_known_skin_id("treasure_martial_manual"));
+        assert!(is_known_skin_id("treasure_perfume"));
         assert!(is_known_skin_id("special_water_monster"));
         assert!(is_known_skin_id("special_pizza_rabbit"));
         assert!(is_known_skin_id("special_spaghetti_dog"));
