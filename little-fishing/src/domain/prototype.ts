@@ -184,7 +184,8 @@ export interface FishingLogEntry {
   gainedMoney: number | null;
 }
 
-export type MainSection = "fishing" | "basket" | "log" | "fish" | "bait" | "store" | "settings";
+export type MainSection = "fishing" | "basket" | "treasure" | "log" | "fish" | "bait" | "store" | "settings";
+export type BobberAlertKind = "event" | "catch" | "special_catch" | "treasure";
 
 export type AppTheme = "system" | "light" | "dark";
 export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal" | "samoyed" | "golden_retriever" | "treasure_pearl" | "treasure_crystal_shoe" | "treasure_seal" | "treasure_wood_sword" | "treasure_martial_manual" | "treasure_perfume" | "special_water_monster" | "special_pizza_rabbit" | "special_spaghetti_dog" | "tom";

@@ -872,6 +872,26 @@ impl SqliteStore {
             .collect()
     }
 
+    pub fn delete_bait_recipe(&self, recipe_id: i64) -> rusqlite::Result<()> {
+        if recipe_id <= 1 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        let mut connection = self.connection.lock().expect("sqlite connection poisoned");
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "DELETE FROM bait_recipe_components WHERE recipe_id = ?1",
+            [recipe_id],
+        )?;
+        let deleted_recipe = transaction.execute(
+            "DELETE FROM bait_recipes WHERE id = ?1 AND id > 1",
+            [recipe_id],
+        )?;
+        if deleted_recipe != 1 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        transaction.commit()
+    }
+
     pub fn save_bait_recipe(
         &self,
         recipe_id: Option<i64>,
@@ -2093,6 +2113,24 @@ mod tests {
             store.load_bait_recipes().expect("load saved recipes").len(),
             3
         );
+        store
+            .delete_bait_recipe(second_recipe_id)
+            .expect("delete second custom bait");
+        assert_eq!(
+            store.load_bait_recipes().expect("load remaining recipes"),
+            vec![
+                (1, "综合试钓饵".to_owned()),
+                (first_recipe_id, "两甜一酸".to_owned())
+            ]
+        );
+        assert!(store.load_bait_profile(second_recipe_id).is_err());
+        assert_eq!(
+            store
+                .load_recipe_components(first_recipe_id)
+                .expect("keep first recipe after deleting second"),
+            vec![(1, 20.0), (4, 10.0)]
+        );
+        assert!(store.delete_bait_recipe(1).is_err());
         assert!(
             store
                 .save_bait_recipe(None, "无效配方", &[(999, 1.0)])

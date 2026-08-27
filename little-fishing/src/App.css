@@ -301,6 +301,41 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .treasure-card small { display: block; margin-top: 8px; color: #8067a0; font-size: 10px; }
 .treasure-card.locked h3 { color: #313735; letter-spacing: .18em; }
 
+.treasure-room-page { padding-bottom: 28px; }
+.treasure-cabinet {
+  display: grid; gap: 22px; padding: 25px 24px 34px; overflow: hidden;
+  border: 1px solid rgba(104,74,45,.28); border-radius: 22px;
+  background:
+    linear-gradient(90deg, rgba(85,55,34,.08), transparent 8%, transparent 92%, rgba(85,55,34,.08)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 2px, transparent 2px 16px),
+    linear-gradient(145deg, #d6b27c, #b78351);
+  box-shadow: inset 0 0 0 7px rgba(105,70,40,.12), 0 12px 32px rgba(62,43,30,.13);
+}
+.treasure-shelf { min-width: 0; }
+.treasure-shelf-items { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 18px; padding: 0 10px; }
+.treasure-display {
+  position: relative; min-width: 0; min-height: 188px; padding: 13px 12px 16px; text-align: center;
+  border: 1px solid rgba(106,78,52,.18); border-radius: 70px 70px 13px 13px;
+  background: linear-gradient(180deg, rgba(255,250,232,.88), rgba(245,228,195,.92));
+  box-shadow: inset 0 0 24px rgba(114,76,42,.08), 0 7px 13px rgba(78,49,27,.12);
+}
+.treasure-display-stage { display: grid; place-items: center; height: 78px; }
+.treasure-display .treasure-icon { width: 72px; height: 72px; filter: drop-shadow(0 5px 3px rgba(63,43,31,.18)); }
+.treasure-display h3 { margin: 7px 0 0; overflow: hidden; color: #513f33; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.treasure-display p { min-height: 2.8em; margin: 6px 0 0; color: #7a6859; font-size: 10px; line-height: 1.4; }
+.treasure-display small { display: block; margin-top: 7px; color: #896632; font-size: 9px; }
+.treasure-display.locked { opacity: .73; background: linear-gradient(180deg, rgba(229,225,211,.9), rgba(204,198,181,.92)); }
+.treasure-display.locked h3 { color: #4e4b45; letter-spacing: .13em; }
+.treasure-display.locked .treasure-icon * { fill: #111 !important; stroke: #111 !important; }
+.treasure-shelf-plank {
+  position: relative; height: 22px; margin-top: -2px; border: 1px solid rgba(84,52,27,.28); border-radius: 5px 5px 10px 10px;
+  background: linear-gradient(#a66f3f, #754927); box-shadow: 0 8px 10px rgba(54,33,19,.25), inset 0 3px rgba(255,226,174,.18);
+}
+.treasure-shelf-plank::before, .treasure-shelf-plank::after { content: ""; position: absolute; top: 20px; width: 18px; height: 15px; background: #67401f; }
+.treasure-shelf-plank::before { left: 9%; }
+.treasure-shelf-plank::after { right: 9%; }
+.treasure-room-empty { color: var(--muted); text-align: center; }
+
 .basket-summary { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
 .basket-summary > span {
   padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px;
@@ -337,6 +372,9 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .field-label input:focus, .field-label select:focus, .ingredient-row input:focus { border-color: #72a4a0; box-shadow: 0 0 0 3px rgba(76,155,145,.12); }
 .bait-name-field { margin-top: 12px; }
 .bait-save-actions { display: grid; gap: 8px; }
+.bait-save-actions .danger-button { color: #a23b32; border-color: rgba(162, 59, 50, 0.34); background: rgba(255, 239, 235, 0.86); }
+.bait-save-actions .danger-button:hover:not(:disabled) { background: rgba(255, 224, 218, 0.95); }
+.bait-action-note { margin: 9px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .admin-preference-sources { display: flex; flex-wrap: wrap; min-width: 150px; gap: 5px; }
 .admin-preference-sources span { padding: 3px 6px; border-radius: 999px; background: rgba(76,155,145,.12); white-space: nowrap; }
 .ingredient-list { display: grid; gap: 8px; margin-top: 16px; }
@@ -532,12 +570,15 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .bobber-button.waiting .bobber-float-layer { animation: bobber-float-bob 2.35s ease-in-out infinite; }
 .bobber-button.stopped .bobber-cat-scene, .bobber-button.stopped .bobber-float-layer { opacity: .72; filter: saturate(.72); }
 .bobber-alert {
-  position: absolute; z-index: 4; top: 0; left: 50%; display: grid; width: 28px; height: 30px; padding: 0;
+  position: absolute; z-index: 4; top: 0; left: 50%; display: grid; width: 32px; height: 30px; padding: 0;
   place-items: center; border: 0; color: #f4a821; background: transparent; transform: translateX(-50%);
   filter: drop-shadow(0 2px 1px rgba(77,48,12,.28));
   animation: alert-arrive .22s ease-out both, alert-hover 1.8s .22s ease-in-out infinite;
 }
-.bobber-alert span { font-size: 25px; font-weight: 950; line-height: 1; -webkit-text-stroke: 1px rgba(255,255,255,.92); }
+.bobber-alert-mark { font-size: 25px; font-weight: 950; line-height: 1; -webkit-text-stroke: 1px rgba(255,255,255,.92); }
+.bobber-alert-icon { width: 30px; height: 27px; overflow: visible; }
+.bobber-alert.special-catch .bobber-alert-icon { filter: drop-shadow(0 0 4px #ffe06e) drop-shadow(0 0 7px rgba(255,180,54,.78)); animation: special-alert-glow 1.25s ease-in-out infinite; }
+.bobber-alert.treasure .bobber-alert-icon { filter: drop-shadow(0 0 4px rgba(255,215,90,.82)); }
 
 .compact-panel { width: 100%; height: 100vh; padding: 10px; background: transparent; }
 .panel-paper { height: calc(100vh - 20px); padding: 14px 16px; border: 1px solid rgba(56,91,87,.2); border-radius: 16px; background: rgba(251,253,249,.97); box-shadow: 0 15px 40px rgba(25,55,53,.2); }
@@ -559,6 +600,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 @keyframes bobber-float-bob { 0%,100% { transform: translateY(-1px); } 50% { transform: translateY(2px); } }
 @keyframes alert-arrive { from { opacity: 0; transform: translate(-50%, 4px) scale(.7); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
 @keyframes alert-hover { 0%,100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -2px); } }
+@keyframes special-alert-glow { 0%,100% { transform: scale(.96); opacity: .9; } 50% { transform: scale(1.08); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 :root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 @media (max-width: 880px) {
@@ -567,6 +609,7 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
   .hero-card, .bait-layout { grid-template-columns: 1fr; }
   .water-scene { min-height: 150px; }
   .fish-record-grid, .treasure-grid, .basket-grid, .store-grid { grid-template-columns: 1fr; }
+  .treasure-shelf-items { grid-template-columns: 1fr; }
   .player-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .settings-layout { grid-template-columns: 1fr; }
   .settings-save-card { grid-column: auto; }

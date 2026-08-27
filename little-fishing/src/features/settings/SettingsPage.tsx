@@ -106,7 +106,7 @@ export function SettingsPage() {
     <div className="section-intro"><div><h2>设置</h2><p>这里只放日常会用到的选项。修改后点击保存，窗口行为和显示风格会立即更新。</p></div><span>{dirty ? "有未保存修改" : "已保存"}</span></div>
     <div className="settings-layout">
       <article className="paper-card settings-group"><h3>提醒与后台</h3>
-        <ToggleSetting checked={settings.notificationsEnabled} label="角色事件提示" description="发生事件或完成结算后，角色头顶会显示感叹号；点击后打开钓鱼主页。关闭后不会补发错过的旧提示。" onChange={(value) => patch({ notificationsEnabled: value })} />
+        <ToggleSetting checked={settings.notificationsEnabled} label="角色事件提示" description="环境事件显示感叹号，中鱼显示小鱼，特殊鱼会发光，神秘奇遇显示宝箱；点击会进入对应页面。关闭后不会补发错过的旧提示。" onChange={(value) => patch({ notificationsEnabled: value })} />
         <ToggleSetting checked={settings.autostartEnabled} label="开机自动启动" description="登录 Windows 后在后台启动，只显示桌面浮标，不主动弹出主窗口。" onChange={(value) => patch({ autostartEnabled: value })} />
         {showTestControls && <button className="quiet-button settings-test" disabled={!settings.notificationsEnabled} onClick={() => void testNotification()}>发送测试通知</button>}
       </article>

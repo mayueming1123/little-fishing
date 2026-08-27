@@ -19,6 +19,7 @@ import {
   type MainSection,
   type SkinStoreState,
   type BobberSkinId,
+  type BobberAlertKind,
 } from "../domain/prototype";
 
 declare global {
@@ -98,6 +99,19 @@ export async function saveBaitRecipe(
 export async function selectBaitRecipe(recipeId: number): Promise<PrototypeState> {
   if (isTauriRuntime()) return invoke<PrototypeState>("select_bait_recipe", { recipeId });
   mockState = { ...mockState, selectedRecipeId: recipeId, stateRevision: mockState.stateRevision + 1 };
+  emitMock();
+  return mockState;
+}
+
+export async function deleteBaitRecipe(recipeId: number): Promise<PrototypeState> {
+  if (isTauriRuntime()) return invoke<PrototypeState>("delete_bait_recipe", { recipeId });
+  if (recipeId <= 1) throw new Error("默认鱼饵方案不能删除");
+  mockState = {
+    ...mockState,
+    selectedRecipeId: 1,
+    selectedRecipeName: "综合试钓饵",
+    stateRevision: mockState.stateRevision + 1,
+  };
   emitMock();
   return mockState;
 }
@@ -267,10 +281,10 @@ export async function sendPrototypeNotification(): Promise<boolean> {
   return true;
 }
 
-export async function subscribeBobberAlert(listener: (pending: boolean) => void): Promise<UnlistenFn> {
+export async function subscribeBobberAlert(listener: (pending: BobberAlertKind | null) => void): Promise<UnlistenFn> {
   if (!isTauriRuntime()) return () => undefined;
-  const unlisten = await listen<boolean>("bobber-alert", (event) => listener(event.payload));
-  const pending = await invoke<boolean>("get_pending_bobber_alert");
+  const unlisten = await listen<BobberAlertKind | null>("bobber-alert", (event) => listener(event.payload));
+  const pending = await invoke<BobberAlertKind | null>("get_pending_bobber_alert");
   listener(pending);
   return unlisten;
 }

@@ -5,6 +5,7 @@ import { FishRecordsPage } from "../fish/FishRecordsPage";
 import { FishingLogPage } from "../log/FishingLogPage";
 import { SettingsPage } from "../settings/SettingsPage";
 import { SkinStorePage } from "../store/SkinStorePage";
+import { TreasureRoomPage } from "../treasure/TreasureRoomPage";
 import { usePrototypeState } from "../../hooks/usePrototypeState";
 import { isTauriRuntime, sendPrototypeNotification, subscribeMainNavigation } from "../../ipc/client";
 import type { MainSection } from "../../domain/prototype";
@@ -20,6 +21,7 @@ const eventCategoryLabels = {
 const navigation = [
   { id: "fishing" as const, label: "钓鱼", enabled: true },
   { id: "basket" as const, label: "鱼篓", enabled: true },
+  { id: "treasure" as const, label: "藏宝室", enabled: true },
   { id: "log" as const, label: "日志", enabled: true },
   { id: "fish" as const, label: "鱼类", enabled: true },
   { id: "bait" as const, label: "鱼饵", enabled: true },
@@ -70,11 +72,11 @@ export function MainWindow() {
 
       <section className="content">
         <header className="content-header">
-          <div><p className="eyebrow">FISHING COMPANION</p><h1>{section === "fishing" ? "今天也慢慢等一竿" : section === "basket" ? "钓上来的鱼先放在这里" : section === "log" ? "每一竿都留下一点动静" : section === "fish" ? "每条鱼都有自己的记录" : section === "bait" ? "随手调一份今天的鱼饵" : section === "store" ? "给桌面浮标换个伙伴" : "把陪伴方式调得顺手一点"}</h1><p className="subtitle">{section === "fishing" ? "不催促，不保底，水下什么时候有结果没人知道。" : section === "basket" ? "鱼获不会催你处理，想吃掉或卖掉时再来看看。" : section === "log" ? "回头看看等待、空军，以及已经发生过的每一竿。" : section === "fish" ? "筛选已钓到或未钓到的鱼；隐藏偏好仍然不会显示。" : section === "bait" ? "自由搭配成分与比例，五维属性会随配方实时变化。" : section === "store" ? "金币换外观与永久 Buff，累计产屎量解锁趣味成就。" : "通知、浮标和显示选项都只保存在这台电脑。"}</p></div>
+          <div><p className="eyebrow">FISHING COMPANION</p><h1>{section === "fishing" ? "今天也慢慢等一竿" : section === "basket" ? "钓上来的鱼先放在这里" : section === "treasure" ? "把偶遇的奇妙东西摆起来" : section === "log" ? "每一竿都留下一点动静" : section === "fish" ? "每条鱼都有自己的记录" : section === "bait" ? "随手调一份今天的鱼饵" : section === "store" ? "给桌面浮标换个伙伴" : "把陪伴方式调得顺手一点"}</h1><p className="subtitle">{section === "fishing" ? "不催促，不保底，水下什么时候有结果没人知道。" : section === "basket" ? "鱼获不会催你处理，想吃掉或卖掉时再来看看。" : section === "treasure" ? "神秘奇遇不会塞进鱼篓，它们会安静地留在展示架上。" : section === "log" ? "回头看看等待、空军，以及已经发生过的每一竿。" : section === "fish" ? "筛选已钓到或未钓到的鱼；隐藏偏好仍然不会显示。" : section === "bait" ? "自由搭配成分与比例，五维属性会随配方实时变化。" : section === "store" ? "金币换外观与永久 Buff，累计产屎量解锁趣味成就。" : "通知、浮标和显示选项都只保存在这台电脑。"}</p></div>
           {!isTauriRuntime() && <span className="runtime-badge">前端预览模式</span>}
         </header>
 
-        {section === "settings" ? <SettingsPage /> : section === "store" ? <SkinStorePage /> : section === "basket" ? <FishBasketPage revision={state?.stateRevision ?? 0} /> : section === "log" ? <FishingLogPage revision={state?.stateRevision ?? 0} /> : section === "fish" ? <FishRecordsPage /> : section === "bait" ? <BaitRecipePage isFishing={Boolean(state?.isFishing)} onSaved={refresh} /> : <><section className="hero-card" aria-live="polite">
+        {section === "settings" ? <SettingsPage /> : section === "store" ? <SkinStorePage /> : section === "treasure" ? <TreasureRoomPage revision={state?.stateRevision ?? 0} /> : section === "basket" ? <FishBasketPage revision={state?.stateRevision ?? 0} /> : section === "log" ? <FishingLogPage revision={state?.stateRevision ?? 0} /> : section === "fish" ? <FishRecordsPage /> : section === "bait" ? <BaitRecipePage isFishing={Boolean(state?.isFishing)} onSaved={refresh} /> : <><section className="hero-card" aria-live="polite">
           <div>
             <div className="status-kicker"><span className={`status-dot ${waiting ? "waiting" : ""}`} />{statusText}</div>
             <h2>{waiting ? `第 ${state?.roundNumber ?? 1} 竿` : "还没有抛竿"}</h2>

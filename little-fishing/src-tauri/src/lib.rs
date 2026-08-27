@@ -4,8 +4,8 @@ mod round_engine;
 
 use chrono::{DateTime, Duration as ChronoDuration, Local, SecondsFormat, Utc};
 use fishing_rules::{
-    BaitIngredientInfo, FishRecord, FlavorVector, OutcomeTextCatalog, TreasureRecord,
-    fish_catch_chances, resolve_round,
+    BaitIngredientInfo, FishRarity, FishRecord, FlavorVector, OutcomeTextCatalog, RoundOutcome,
+    TreasureRecord, fish_catch_chances, resolve_round,
 };
 use persistence::{
     AdminFishRecord, FishingLogEntry, PersistedRoundState, PlayerSummary, SqliteStore,
@@ -445,13 +445,34 @@ struct AdminAccessState {
     authorized: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BobberAlertKind {
+    Event,
+    Catch,
+    SpecialCatch,
+    Treasure,
+}
+
+impl BobberAlertKind {
+    const fn priority(self) -> u8 {
+        match self {
+            Self::Event => 1,
+            Self::Catch => 2,
+            Self::SpecialCatch => 3,
+            Self::Treasure => 4,
+        }
+    }
+}
+
 #[derive(Default)]
 struct BobberAlertState {
-    pending: AtomicBool,
+    pending: Mutex<Option<BobberAlertKind>>,
 }
 
 struct ResolvedRound {
     summary: String,
+    alert_kind: BobberAlertKind,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -648,8 +669,17 @@ fn resolve_with_store(
             &outcome,
         )
         .map_err(|error| error.to_string())?;
+    let alert_kind = match &outcome {
+        RoundOutcome::Caught { rarity, .. } if *rarity == FishRarity::Special => {
+            BobberAlertKind::SpecialCatch
+        }
+        RoundOutcome::Caught { .. } => BobberAlertKind::Catch,
+        RoundOutcome::TreasureFound { .. } => BobberAlertKind::Treasure,
+        RoundOutcome::Missed { .. } => BobberAlertKind::Event,
+    };
     Ok(ResolvedRound {
         summary: outcome.summary(),
+        alert_kind,
     })
 }
 
@@ -685,7 +715,7 @@ fn show_main(app: &AppHandle) {
     }
 }
 
-fn show_bobber_alert(app: &AppHandle) -> Result<(), String> {
+fn show_bobber_alert(app: &AppHandle, kind: BobberAlertKind) -> Result<(), String> {
     if !app
         .state::<SettingsState>()
         .0
@@ -695,22 +725,28 @@ fn show_bobber_alert(app: &AppHandle) -> Result<(), String> {
     {
         return Ok(());
     }
-    app.state::<BobberAlertState>()
-        .pending
-        .store(true, Ordering::SeqCst);
+    let visible_kind = {
+        let alert = app.state::<BobberAlertState>();
+        let mut pending = alert.pending.lock().expect("bobber alert state poisoned");
+        if pending.is_none_or(|current| kind.priority() >= current.priority()) {
+            *pending = Some(kind);
+        }
+        *pending
+    };
     app.get_webview_window("bobber")
         .ok_or("bobber window not found")?
-        .emit(BOBBER_ALERT_EVENT, true)
+        .emit(BOBBER_ALERT_EVENT, visible_kind)
         .map_err(|error| error.to_string())?;
     Ok(())
 }
 
 fn clear_bobber_alert(app: &AppHandle) {
-    app.state::<BobberAlertState>()
+    *app.state::<BobberAlertState>()
         .pending
-        .store(false, Ordering::SeqCst);
+        .lock()
+        .expect("bobber alert state poisoned") = None;
     if let Some(bobber) = app.get_webview_window("bobber") {
-        let _ = bobber.emit(BOBBER_ALERT_EVENT, false);
+        let _ = bobber.emit(BOBBER_ALERT_EVENT, Option::<BobberAlertKind>::None);
     }
 }
 
@@ -963,7 +999,7 @@ fn spawn_scheduler(app: AppHandle) {
                 }
             };
             if waiting_event.is_some() {
-                if let Err(error) = show_bobber_alert(&app) {
+                if let Err(error) = show_bobber_alert(&app, BobberAlertKind::Event) {
                     eprintln!("failed to show waiting event alert: {error}");
                 }
                 continue;
@@ -992,9 +1028,10 @@ fn spawn_scheduler(app: AppHandle) {
                 eprintln!("failed to resolve fishing round: {error}");
                 ResolvedRound {
                     summary: "这一竿到了结算时间，但记录结果时出了点小问题。".to_owned(),
+                    alert_kind: BobberAlertKind::Event,
                 }
             });
-            if let Err(error) = show_bobber_alert(&app) {
+            if let Err(error) = show_bobber_alert(&app, resolved.alert_kind) {
                 eprintln!("failed to show round result alert: {error}");
             }
             let completed = {
@@ -1186,6 +1223,40 @@ fn select_bait_recipe(app: AppHandle, recipe_id: i64) -> Result<PrototypeSnapsho
         state.selected_recipe_id = recipe_id as u64;
         state.selected_recipe_name = Some(profile.name);
         state.selected_bait_flavor = Some(profile.flavor);
+        state.state_revision += 1;
+        save_state(&app, &state);
+        state.snapshot()
+    };
+    broadcast(&app, value.clone());
+    Ok(value)
+}
+
+#[tauri::command]
+fn delete_bait_recipe(app: AppHandle, recipe_id: i64) -> Result<PrototypeSnapshot, String> {
+    if recipe_id <= 1 {
+        return Err("默认鱼饵方案不能删除".to_owned());
+    }
+    let value = {
+        let persistence = app.state::<PersistenceState>();
+        let state = app.state::<PrototypeAppState>();
+        let mut state = state.0.lock().expect("prototype state poisoned");
+        if state.phase != FishingPhase::Stopped {
+            return Err("请先停止钓鱼，再删除鱼饵方案".to_owned());
+        }
+        if state.selected_recipe_id != recipe_id as u64 {
+            return Err("只能删除当前选中的鱼饵方案".to_owned());
+        }
+        let default_profile = persistence
+            .store
+            .load_bait_profile(1)
+            .map_err(|error| error.to_string())?;
+        persistence
+            .store
+            .delete_bait_recipe(recipe_id)
+            .map_err(|_| "找不到这个鱼饵方案".to_owned())?;
+        state.selected_recipe_id = 1;
+        state.selected_recipe_name = Some(default_profile.name);
+        state.selected_bait_flavor = Some(default_profile.flavor);
         state.state_revision += 1;
         save_state(&app, &state);
         state.snapshot()
@@ -1502,14 +1573,15 @@ fn request_app_exit(app: AppHandle) {
 
 #[tauri::command]
 fn send_test_notification(app: AppHandle) -> Result<(), String> {
-    show_bobber_alert(&app)
+    show_bobber_alert(&app, BobberAlertKind::Event)
 }
 
 #[tauri::command]
-fn get_pending_bobber_alert(app: AppHandle) -> bool {
-    app.state::<BobberAlertState>()
+fn get_pending_bobber_alert(app: AppHandle) -> Option<BobberAlertKind> {
+    *app.state::<BobberAlertState>()
         .pending
-        .load(Ordering::SeqCst)
+        .lock()
+        .expect("bobber alert state poisoned")
 }
 
 #[tauri::command]
@@ -1519,9 +1591,19 @@ fn dismiss_bobber_alert(app: AppHandle) {
 
 #[tauri::command]
 fn activate_bobber_alert(app: AppHandle) {
+    let kind = *app
+        .state::<BobberAlertState>()
+        .pending
+        .lock()
+        .expect("bobber alert state poisoned");
     show_main(&app);
     if let Some(main) = app.get_webview_window("main") {
-        let _ = main.emit(MAIN_NAVIGATE_EVENT, "fishing");
+        let section = match kind {
+            Some(BobberAlertKind::Catch | BobberAlertKind::SpecialCatch) => "basket",
+            Some(BobberAlertKind::Treasure) => "treasure",
+            _ => "fishing",
+        };
+        let _ = main.emit(MAIN_NAVIGATE_EVENT, section);
     }
 }
 
@@ -1678,6 +1760,7 @@ pub fn run() {
             get_bait_editor_data,
             save_bait_recipe,
             select_bait_recipe,
+            delete_bait_recipe,
             get_fish_records,
             get_treasure_records,
             get_player_summary,
@@ -1752,11 +1835,11 @@ mod tests {
     #[test]
     fn bobber_alert_stays_pending_until_activated() {
         let alert = BobberAlertState::default();
-        assert!(!alert.pending.load(Ordering::SeqCst));
-        alert.pending.store(true, Ordering::SeqCst);
-        assert!(alert.pending.load(Ordering::SeqCst));
-        alert.pending.store(false, Ordering::SeqCst);
-        assert!(!alert.pending.load(Ordering::SeqCst));
+        assert_eq!(*alert.pending.lock().unwrap(), None);
+        *alert.pending.lock().unwrap() = Some(BobberAlertKind::Catch);
+        assert_eq!(*alert.pending.lock().unwrap(), Some(BobberAlertKind::Catch));
+        *alert.pending.lock().unwrap() = None;
+        assert_eq!(*alert.pending.lock().unwrap(), None);
     }
 
     #[test]

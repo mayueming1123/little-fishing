@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BobberAlertKind } from "../../domain/prototype";
 import { activateBobberAlert, dismissBobberAlert, subscribeBobberAlert, toggleCompactPanel } from "../../ipc/client";
 import { BobberView } from "./BobberView";
 
@@ -34,7 +35,7 @@ describe("BobberView", () => {
   });
 
   it("shows one attached exclamation alert and opens the home page when clicked", async () => {
-    let alertListener: ((pending: boolean) => void) | undefined;
+    let alertListener: ((pending: BobberAlertKind | null) => void) | undefined;
     vi.mocked(subscribeBobberAlert).mockImplementation(async (listener) => {
       alertListener = listener;
       return () => undefined;
@@ -42,7 +43,7 @@ describe("BobberView", () => {
     render(<BobberView />);
     await act(async () => undefined);
 
-    act(() => alertListener?.(true));
+    act(() => alertListener?.("event"));
     const alert = screen.getByRole("button", { name: "有新的钓鱼事件，点击打开主页" });
     expect(screen.getByText("!")).toBeTruthy();
     fireEvent.click(alert);
@@ -52,14 +53,14 @@ describe("BobberView", () => {
   });
 
   it("clears the alert when the character opens the compact panel", async () => {
-    let alertListener: ((pending: boolean) => void) | undefined;
+    let alertListener: ((pending: BobberAlertKind | null) => void) | undefined;
     vi.mocked(subscribeBobberAlert).mockImplementation(async (listener) => {
       alertListener = listener;
       return () => undefined;
     });
     render(<BobberView />);
     await act(async () => undefined);
-    act(() => alertListener?.(true));
+    act(() => alertListener?.("catch"));
 
     const character = screen.getByRole("button", { name: "已停止，点击打开状态面板" });
     fireEvent.pointerDown(character, { screenX: 100, screenY: 100 });
@@ -67,6 +68,25 @@ describe("BobberView", () => {
 
     expect(dismissBobberAlert).toHaveBeenCalledOnce();
     expect(toggleCompactPanel).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("button", { name: "有新的钓鱼事件，点击打开主页" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "钓到鱼了，点击打开鱼篓" })).toBeNull();
+  });
+
+  it.each([
+    ["catch", "钓到鱼了，点击打开鱼篓"],
+    ["special_catch", "钓到特殊鱼了，点击打开鱼篓"],
+    ["treasure", "发现神秘奇遇，点击打开藏宝室"],
+  ] as const)("renders the %s result icon with its own destination", async (kind, label) => {
+    let alertListener: ((pending: BobberAlertKind | null) => void) | undefined;
+    vi.mocked(subscribeBobberAlert).mockImplementation(async (listener) => {
+      alertListener = listener;
+      return () => undefined;
+    });
+    render(<BobberView />);
+    await act(async () => undefined);
+
+    act(() => alertListener?.(kind));
+    fireEvent.click(screen.getByRole("button", { name: label }));
+
+    expect(activateBobberAlert).toHaveBeenCalledOnce();
   });
 });
