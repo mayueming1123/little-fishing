@@ -15,6 +15,7 @@ import {
   type TreasureRecord,
   type FishingLogEntry,
   type PlayerSummary,
+  type DailyFishHint,
   type PrototypeState,
   type MainSection,
   type SkinStoreState,
@@ -127,6 +128,15 @@ export async function getTreasureRecords(): Promise<TreasureRecord[]> {
 export async function getPlayerSummary(): Promise<PlayerSummary> {
   if (isTauriRuntime()) return invoke<PlayerSummary>("get_player_summary");
   return { poopKg: 0, money: 0, pendingCatches: 0, eatenCount: 0, soldCount: 0 };
+}
+
+export async function getDailyFishHint(): Promise<DailyFishHint | null> {
+  if (isTauriRuntime()) return invoke<DailyFishHint | null>("get_daily_fish_hint");
+  return {
+    localDate: new Date().toISOString().slice(0, 10),
+    fishName: "鲫鱼",
+    ingredientNames: ["玉米粉", "麦香粉"],
+  };
 }
 
 export async function getAdminSnapshot(): Promise<AdminSnapshot> {

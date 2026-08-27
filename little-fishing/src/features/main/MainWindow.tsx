@@ -1,15 +1,25 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { BaitRecipePage } from "../bait/BaitRecipePage";
 import { FishBasketPage } from "../basket/FishBasketPage";
+import { getBobberSkin } from "../bobber/skins";
 import { FishRecordsPage } from "../fish/FishRecordsPage";
 import { FishingLogPage } from "../log/FishingLogPage";
 import { SettingsPage } from "../settings/SettingsPage";
 import { SkinStorePage } from "../store/SkinStorePage";
 import { TreasureRoomPage } from "../treasure/TreasureRoomPage";
+import { defaultAppSettings, type AppSettings, type DailyFishHint, type MainSection, type PlayerSummary } from "../../domain/prototype";
 import { usePrototypeState } from "../../hooks/usePrototypeState";
-import { isTauriRuntime, sendPrototypeNotification, subscribeMainNavigation } from "../../ipc/client";
-import type { MainSection } from "../../domain/prototype";
+import {
+  getAppSettings,
+  getDailyFishHint,
+  getPlayerSummary,
+  isTauriRuntime,
+  sendPrototypeNotification,
+  subscribeAppSettings,
+  subscribeMainNavigation,
+} from "../../ipc/client";
 import { formatClock, formatElapsed } from "../../lib/time";
+import { DailyFishHintCard } from "./DailyFishHintCard";
 
 const eventCategoryLabels = {
   environment: "岸边",
@@ -18,22 +28,39 @@ const eventCategoryLabels = {
   wildlife: "来客",
   story: "插曲",
 } as const;
-const navigation = [
-  { id: "fishing" as const, label: "钓鱼", enabled: true },
-  { id: "basket" as const, label: "鱼篓", enabled: true },
-  { id: "treasure" as const, label: "藏宝室", enabled: true },
-  { id: "log" as const, label: "日志", enabled: true },
-  { id: "fish" as const, label: "鱼类", enabled: true },
-  { id: "bait" as const, label: "鱼饵", enabled: true },
-  { id: "store" as const, label: "商店", enabled: true },
-  { id: "settings" as const, label: "设置", enabled: true },
+
+const navigation: Array<{ id: MainSection; label: string; icon: string }> = [
+  { id: "fishing", label: "钓鱼", icon: "🎣" },
+  { id: "basket", label: "鱼篓", icon: "🧺" },
+  { id: "treasure", label: "藏宝室", icon: "💎" },
+  { id: "log", label: "日志", icon: "📜" },
+  { id: "fish", label: "鱼类", icon: "🐟" },
+  { id: "bait", label: "鱼饵", icon: "🌽" },
+  { id: "store", label: "商店", icon: "🛍️" },
+  { id: "settings", label: "设置", icon: "⚙️" },
 ];
+
+const sectionCopy: Record<MainSection, { title: string; subtitle: string }> = {
+  fishing: { title: "今天也慢慢等一竿", subtitle: "不催促，不保底，水下什么时候有结果没人知道。" },
+  basket: { title: "钓上来的鱼先放在这里", subtitle: "鱼获不会催你处理，想吃掉或卖掉时再来看看。" },
+  treasure: { title: "把偶遇的奇妙东西摆起来", subtitle: "神秘奇遇不会塞进鱼篓，它们会安静地留在展示架上。" },
+  log: { title: "每一竿都留下一点动静", subtitle: "回头看看等待、空军，以及已经发生过的每一竿。" },
+  fish: { title: "每条鱼都有自己的记录", subtitle: "筛选已钓到或未钓到的鱼；隐藏偏好仍然不会显示。" },
+  bait: { title: "随手调一份今天的鱼饵", subtitle: "自由搭配成分与比例，五维属性会随配方实时变化。" },
+  store: { title: "给桌面浮标换个伙伴", subtitle: "金币换外观与永久 Buff，累计排泄量解锁趣味成就。" },
+  settings: { title: "把陪伴方式调得顺手一点", subtitle: "通知、浮标和显示选项都只保存在这台电脑。" },
+};
+
 const showTestControls = import.meta.env.DEV;
+
 export function MainWindow() {
   const { state, error, refresh, toggleFishing } = usePrototypeState();
   const [now, setNow] = useState(Date.now());
   const [notice, setNotice] = useState<string | null>(null);
   const [section, setSection] = useState<MainSection>("fishing");
+  const [settings, setSettings] = useState<AppSettings>(defaultAppSettings);
+  const [summary, setSummary] = useState<PlayerSummary | null>(null);
+  const [dailyHint, setDailyHint] = useState<DailyFishHint | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -46,6 +73,37 @@ export function MainWindow() {
     return () => unlisten?.();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void getAppSettings().then((next) => { if (active) setSettings(next); });
+    void subscribeAppSettings(setSettings).then((dispose) => { unlisten = dispose; });
+    return () => { active = false; unlisten?.(); };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    let retryTimer: number | undefined;
+    let attempts = 0;
+    const loadHomeData = () => {
+      attempts += 1;
+      void Promise.all([getPlayerSummary(), getDailyFishHint()])
+        .then(([nextSummary, nextHint]) => {
+          if (!active) return;
+          setSummary(nextSummary);
+          setDailyHint(nextHint);
+        })
+        .catch(() => {
+          if (active && attempts < 20) retryTimer = window.setTimeout(loadHomeData, 250);
+        });
+    };
+    loadHomeData();
+    return () => {
+      active = false;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+    };
+  }, [section, state?.stateRevision]);
+
   const waiting = state?.phase === "waiting";
   const statusText = waiting ? "正在自动钓鱼" : state?.phase === "settling" ? "正在收线" : "浮标暂时歇着";
   const occurredWaitingEvents = state?.waitingEvents
@@ -55,57 +113,78 @@ export function MainWindow() {
   const recentText = waiting
     ? latestWaitingEvent?.description ?? state?.statusText ?? "浮标轻轻立在水面，暂时没有别的动静。"
     : state?.lastResult ?? "岸边很安静，随时可以开始。";
+  const companion = getBobberSkin(settings.bobberSkin);
 
   async function testNotification() {
     const sent = await sendPrototypeNotification();
     setNotice(sent ? "测试通知已发送" : "通知已关闭，或当前处于浏览器预览模式");
   }
 
-  return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><div className="brand-mark" aria-hidden="true">│</div><div><strong>小小钓鱼</strong><small>桌面钓鱼陪伴</small></div></div>
-        <nav className="nav-list" aria-label="主要导航">
-          {navigation.map((item) => <button key={item.id} className={`nav-item ${section === item.id ? "active" : ""}`} disabled={!item.enabled} onClick={() => item.enabled && setSection(item.id)}>{item.label}</button>)}
-        </nav>
-      </aside>
+  const mainContent = section === "settings" ? <SettingsPage />
+    : section === "store" ? <SkinStorePage />
+      : section === "treasure" ? <TreasureRoomPage revision={state?.stateRevision ?? 0} />
+        : section === "basket" ? <FishBasketPage revision={state?.stateRevision ?? 0} />
+          : section === "log" ? <FishingLogPage revision={state?.stateRevision ?? 0} />
+            : section === "fish" ? <FishRecordsPage />
+              : section === "bait" ? <BaitRecipePage isFishing={Boolean(state?.isFishing)} onSaved={refresh} />
+                : <>
+                  <section className="hero-card companion-hero" aria-live="polite">
+                    <div className="hero-copy">
+                      <div className="status-kicker"><span className={`status-dot ${waiting ? "waiting" : ""}`} />{statusText}</div>
+                      <h2>{waiting ? `第 ${state?.roundNumber ?? 1} 竿` : "还没有抛竿"}</h2>
+                      {waiting && <p className="round-status-line">{state?.statusText}</p>}
+                      <div className="countdown">{waiting ? "本竿已经钓了" : "开始以后会自动进行下一轮"}<strong>{formatElapsed(state?.roundStartedAt ?? null, now)}</strong></div>
+                      <div className="button-row">
+                        <button className={`primary-button ${waiting ? "stop" : ""}`} onClick={toggleFishing}>{waiting ? "停止钓鱼" : "开始钓鱼"}</button>
+                        {showTestControls && <button className="quiet-button" onClick={testNotification}>测试通知</button>}
+                      </div>
+                      {(error || notice) && <div className="error-strip" role="status">{error ?? notice}</div>}
+                    </div>
+                    <div className={`companion-stage ${waiting ? "waiting" : "stopped"}`} aria-label={`当前伙伴：${companion.label}`}>
+                      <div className="companion-halo" aria-hidden="true" />
+                      <img
+                        src={companion.image}
+                        alt={`${companion.label}正在岸边钓鱼`}
+                        style={{ "--companion-inset": `${companion.inset}%` } as CSSProperties}
+                      />
+                      <span>当前伙伴 · {companion.label}</span>
+                    </div>
+                  </section>
 
-      <section className="content">
-        <header className="content-header">
-          <div><p className="eyebrow">FISHING COMPANION</p><h1>{section === "fishing" ? "今天也慢慢等一竿" : section === "basket" ? "钓上来的鱼先放在这里" : section === "treasure" ? "把偶遇的奇妙东西摆起来" : section === "log" ? "每一竿都留下一点动静" : section === "fish" ? "每条鱼都有自己的记录" : section === "bait" ? "随手调一份今天的鱼饵" : section === "store" ? "给桌面浮标换个伙伴" : "把陪伴方式调得顺手一点"}</h1><p className="subtitle">{section === "fishing" ? "不催促，不保底，水下什么时候有结果没人知道。" : section === "basket" ? "鱼获不会催你处理，想吃掉或卖掉时再来看看。" : section === "treasure" ? "神秘奇遇不会塞进鱼篓，它们会安静地留在展示架上。" : section === "log" ? "回头看看等待、空军，以及已经发生过的每一竿。" : section === "fish" ? "筛选已钓到或未钓到的鱼；隐藏偏好仍然不会显示。" : section === "bait" ? "自由搭配成分与比例，五维属性会随配方实时变化。" : section === "store" ? "金币换外观与永久 Buff，累计产屎量解锁趣味成就。" : "通知、浮标和显示选项都只保存在这台电脑。"}</p></div>
-          {!isTauriRuntime() && <span className="runtime-badge">前端预览模式</span>}
-        </header>
+                  <section className="metric-grid home-metric-grid">
+                    <article className="metric-card"><span className="metric-icon" aria-hidden="true">🌽</span><div><span>当前鱼饵</span><strong>{state?.selectedRecipeName ?? "空钩"}</strong></div></article>
+                    <article className="metric-card"><span className="metric-icon" aria-hidden="true">🪙</span><div><span>现有金币</span><strong>{(summary?.money ?? 0).toLocaleString("zh-CN", { maximumFractionDigits: 0 })}</strong></div></article>
+                    <article className="metric-card"><span className="metric-icon" aria-hidden="true">💩</span><div><span>累计排泄量</span><strong>{(summary?.poopKg ?? 0).toFixed(2)} kg</strong></div></article>
+                  </section>
 
-        {section === "settings" ? <SettingsPage /> : section === "store" ? <SkinStorePage /> : section === "treasure" ? <TreasureRoomPage revision={state?.stateRevision ?? 0} /> : section === "basket" ? <FishBasketPage revision={state?.stateRevision ?? 0} /> : section === "log" ? <FishingLogPage revision={state?.stateRevision ?? 0} /> : section === "fish" ? <FishRecordsPage /> : section === "bait" ? <BaitRecipePage isFishing={Boolean(state?.isFishing)} onSaved={refresh} /> : <><section className="hero-card" aria-live="polite">
-          <div>
-            <div className="status-kicker"><span className={`status-dot ${waiting ? "waiting" : ""}`} />{statusText}</div>
-            <h2>{waiting ? `第 ${state?.roundNumber ?? 1} 竿` : "还没有抛竿"}</h2>
-            {waiting && <p className="round-status-line">{state?.statusText}</p>}
-            <div className="countdown">{waiting ? "本竿已经钓了" : "开始以后会自动进行下一轮"}<strong>{formatElapsed(state?.roundStartedAt ?? null, now)}</strong></div>
-            <div className="button-row">
-              <button className={`primary-button ${waiting ? "stop" : ""}`} onClick={toggleFishing}>{waiting ? "停止钓鱼" : "开始钓鱼"}</button>
-              {showTestControls && <button className="quiet-button" onClick={testNotification}>测试通知</button>}
-            </div>
-            {(error || notice) && <div className="error-strip" role="status">{error ?? notice}</div>}
-          </div>
-          <div className="water-scene" aria-label={waiting ? "浮标正在水面轻轻等待" : "水面上的浮标保持静止"}>
-            <div className="scene-sun" /><div className="scene-line" /><div className={`scene-bobber ${waiting ? "waiting" : ""}`} />
-          </div>
-        </section>
+                  <section className="lower-grid">
+                    <article className="paper-card"><h3>本竿事件</h3>{visibleWaitingEvents.length > 0
+                      ? <ol className="live-event-feed">{visibleWaitingEvents.map((event) => <li key={event.id}><time>{formatClock(event.scheduledAt)}</time><em>{eventCategoryLabels[event.category]}</em><span>{event.description}</span></li>)}</ol>
+                      : <div className="log-line"><time>现在</time><span>{recentText}</span></div>}</article>
+                    <DailyFishHintCard hint={dailyHint} />
+                  </section>
+                </>;
 
-        <section className="metric-grid">
-          <article className="metric-card"><span>当前鱼饵</span><strong>{state?.selectedRecipeName ?? "空钩"}</strong></article>
-          <article className="metric-card"><span>当前回合</span><strong>{state?.roundNumber ? `第 ${state.roundNumber} 竿` : "—"}</strong></article>
-          <article className="metric-card"><span>过程动静</span><strong>{occurredWaitingEvents.length} 次</strong></article>
-        </section>
+  return <main className="app-shell">
+    <header className="app-topbar">
+      <div className="brand"><div className="brand-mark" aria-hidden="true">│</div><div><strong>小小钓鱼</strong><small>桌面钓鱼陪伴</small></div></div>
+      {!isTauriRuntime() && <span className="runtime-badge">前端预览模式</span>}
+    </header>
 
-        <section className="lower-grid">
-          <article className="paper-card"><h3>本竿事件</h3>{visibleWaitingEvents.length > 0
-            ? <ol className="live-event-feed">{visibleWaitingEvents.map((event) => <li key={event.id}><time>{formatClock(event.scheduledAt)}</time><em>{eventCategoryLabels[event.category]}</em><span>{event.description}</span></li>)}</ol>
-            : <div className="log-line"><time>现在</time><span>{recentText}</span></div>}</article>
-          <article className="paper-card"><h3>水下判断</h3><p className="hidden-rule-note">鱼饵五维属性可以在鱼饵页查看；鱼类当天偏好与实际匹配度仍保持隐藏，只能从当天一次次结果里慢慢推测。</p></article>
-        </section></>}
-      </section>
-    </main>
-  );
+    <section className="content">
+      <header className="content-header">
+        <div><p className="eyebrow">FISHING COMPANION</p><h1>{sectionCopy[section].title}</h1><p className="subtitle">{sectionCopy[section].subtitle}</p></div>
+      </header>
+      {mainContent}
+    </section>
+
+    <nav className="dock-nav" aria-label="主要导航">
+      {navigation.map((item) => <button
+        key={item.id}
+        className={`nav-item ${section === item.id ? "active" : ""}`}
+        aria-current={section === item.id ? "page" : undefined}
+        onClick={() => setSection(item.id)}
+      ><span className="dock-icon" aria-hidden="true">{item.icon}</span><span className="dock-label">{item.label}</span></button>)}
+    </nav>
+  </main>;
 }

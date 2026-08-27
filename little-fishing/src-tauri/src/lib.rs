@@ -8,8 +8,8 @@ use fishing_rules::{
     TreasureRecord, fish_catch_chances, resolve_round,
 };
 use persistence::{
-    AdminFishRecord, FishingLogEntry, PersistedRoundState, PlayerSummary, SqliteStore,
-    StoredAppSettings,
+    AdminFishRecord, DailyFishHint, FishingLogEntry, PersistedRoundState, PlayerSummary,
+    SqliteStore, StoredAppSettings,
 };
 use rand::Rng;
 use round_engine::{EventCatalog, WaitingEvent, generate_round_plan};
@@ -1283,9 +1283,26 @@ fn get_treasure_records(app: AppHandle) -> Result<Vec<TreasureRecord>, String> {
 
 #[tauri::command]
 fn get_player_summary(app: AppHandle) -> Result<PlayerSummary, String> {
-    app.state::<PersistenceState>()
+    app.try_state::<PersistenceState>()
+        .ok_or_else(|| "application is still starting".to_owned())?
         .store
         .load_player_summary()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_daily_fish_hint(app: AppHandle) -> Result<Option<DailyFishHint>, String> {
+    let local_date = Local::now().date_naive().to_string();
+    let persistence = app
+        .try_state::<PersistenceState>()
+        .ok_or_else(|| "application is still starting".to_owned())?;
+    persistence
+        .store
+        .ensure_daily_preferences(&local_date, &mut rand::rng())
+        .map_err(|error| error.to_string())?;
+    persistence
+        .store
+        .load_daily_fish_hint(&local_date)
         .map_err(|error| error.to_string())
 }
 
@@ -1623,7 +1640,6 @@ pub fn run() {
         .manage(BobberAlertState::default())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
-            eprintln!("using app data directory: {}", app_data_dir.display());
             fs::create_dir_all(&app_data_dir).map_err(|error| {
                 std::io::Error::other(format!(
                     "failed to create app data directory {}: {error}",
@@ -1764,6 +1780,7 @@ pub fn run() {
             get_fish_records,
             get_treasure_records,
             get_player_summary,
+            get_daily_fish_hint,
             get_admin_snapshot,
             update_admin_money,
             get_skin_store_state,

@@ -160,6 +160,14 @@ pub struct PlayerSummary {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DailyFishHint {
+    pub local_date: String,
+    pub fish_name: String,
+    pub ingredient_names: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AdminFishRecord {
     pub id: i64,
     pub name: String,
@@ -1257,6 +1265,62 @@ impl SqliteStore {
         )
     }
 
+    pub fn load_daily_fish_hint(
+        &self,
+        local_date: &str,
+    ) -> rusqlite::Result<Option<DailyFishHint>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let ingredient_names: HashMap<i64, String> = {
+            let mut ingredient_statement = connection
+                .prepare("SELECT id, name FROM bait_ingredients WHERE enabled = 1 ORDER BY id")?;
+            ingredient_statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<rusqlite::Result<HashMap<_, _>>>()?
+        };
+        let candidates = {
+            let mut statement = connection.prepare(
+                "SELECT f.name, p.source_components_json
+                 FROM fish_species f
+                 JOIN daily_fish_preferences p
+                   ON p.fish_species_id = f.id AND p.local_date = ?1
+                 WHERE f.enabled = 1 AND f.rarity <> 'special'
+                 ORDER BY f.id",
+            )?;
+            statement
+                .query_map([local_date], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+
+        let hash = local_date.bytes().fold(2_166_136_261_u64, |value, byte| {
+            (value ^ u64::from(byte)).wrapping_mul(16_777_619)
+        });
+        let (fish_name, source_json) = &candidates[hash as usize % candidates.len()];
+        let sources =
+            serde_json::from_str::<Vec<PreferenceSourceComponent>>(source_json).unwrap_or_default();
+        if sources.is_empty() {
+            return Ok(None);
+        }
+        let reveal_count = 1 + ((hash >> 16) as usize % sources.len());
+        let ingredient_names = sources
+            .iter()
+            .take(reveal_count)
+            .filter_map(|source| ingredient_names.get(&source.ingredient_id).cloned())
+            .collect::<Vec<_>>();
+        if ingredient_names.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(DailyFishHint {
+            local_date: local_date.to_owned(),
+            fish_name: fish_name.clone(),
+            ingredient_names,
+        }))
+    }
+
     pub fn load_admin_fish_records(
         &self,
         local_date: &str,
@@ -1746,6 +1810,25 @@ mod tests {
                 .collect();
             assert_eq!(unique_ids.len(), preference.components.len());
         }
+    }
+
+    #[test]
+    fn player_hint_reveals_names_without_hidden_ratios() {
+        let store = SqliteStore::open(Path::new(":memory:")).expect("open hint database");
+        store
+            .ensure_daily_preferences("2026-08-27", &mut StdRng::seed_from_u64(27))
+            .expect("create preferences");
+        let hint = store
+            .load_daily_fish_hint("2026-08-27")
+            .expect("load player hint")
+            .expect("hint available");
+
+        assert_eq!(hint.local_date, "2026-08-27");
+        assert!(!hint.fish_name.is_empty());
+        assert!((1..=3).contains(&hint.ingredient_names.len()));
+        let serialized = serde_json::to_string(&hint).expect("serialize hint");
+        assert!(!serialized.contains("percentage"));
+        assert!(!serialized.contains("preference"));
     }
 
     #[test]

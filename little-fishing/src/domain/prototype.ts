@@ -122,6 +122,12 @@ export interface PlayerSummary {
   soldCount: number;
 }
 
+export interface DailyFishHint {
+  localDate: string;
+  fishName: string;
+  ingredientNames: string[];
+}
+
 export interface AdminFishRecord {
   id: number;
   name: string;
