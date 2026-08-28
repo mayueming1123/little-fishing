@@ -49,8 +49,7 @@ function App() {
 
   useEffect(() => {
     function apply(settings: AppSettings) {
-      if (settings.theme === "system") delete document.documentElement.dataset.theme;
-      else document.documentElement.dataset.theme = settings.theme;
+      document.documentElement.dataset.theme = "light";
       document.documentElement.dataset.motion = settings.reducedMotion ? "reduce" : "full";
     }
     void getAppSettings().then(apply);

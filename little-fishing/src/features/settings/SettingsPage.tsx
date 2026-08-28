@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { defaultAppSettings, type AppSettings, type AppTheme, type BobberSkinId } from "../../domain/prototype";
+import { defaultAppSettings, type AppSettings, type BobberSkinId } from "../../domain/prototype";
 import { bobberSkins } from "../bobber/skins";
 import {
   clearBobberSkinPreview,
@@ -24,11 +24,6 @@ function ToggleSetting({ checked, disabled, label, description, onChange }: {
   </label>;
 }
 
-const themes: Array<{ value: AppTheme; label: string }> = [
-  { value: "system", label: "跟随系统" },
-  { value: "light", label: "浅色" },
-  { value: "dark", label: "深色" },
-];
 const showTestControls = import.meta.env.DEV;
 
 export function SettingsPage() {
@@ -103,7 +98,7 @@ export function SettingsPage() {
   const selectableSkinIds = new Set<BobberSkinId>(["orange", settings.bobberSkin, ...ownedSkinIds]);
   const availableSkins = bobberSkins.filter((skin) => selectableSkinIds.has(skin.value));
   return <section className="section-page">
-    <div className="section-intro"><div><h2>设置</h2><p>这里只放日常会用到的选项。修改后点击保存，窗口行为和显示风格会立即更新。</p></div><span>{dirty ? "有未保存修改" : "已保存"}</span></div>
+    <div className="section-intro"><div><h2>设置</h2></div><span>{dirty ? "有未保存修改" : "已保存"}</span></div>
     <div className="settings-layout">
       <article className="paper-card settings-group"><h3>提醒与后台</h3>
         <ToggleSetting checked={settings.notificationsEnabled} label="角色事件提示" description="环境事件显示感叹号，中鱼显示小鱼，特殊鱼会发光，神秘奇遇显示宝箱；点击会进入对应页面。关闭后不会补发错过的旧提示。" onChange={(value) => patch({ notificationsEnabled: value })} />
@@ -125,11 +120,9 @@ export function SettingsPage() {
             onClick={() => void chooseSkin(skin.value)}
           ><img src={skin.image} alt="" draggable={false} /><span>{skin.label}</span></button>)}
         </div>
-        <div className="setting-copy"><strong>界面主题</strong><small>选择跟随 Windows，或固定使用浅色、深色外观。</small></div>
-        <div className="theme-options" role="group" aria-label="界面主题">{themes.map((theme) => <button className={settings.theme === theme.value ? "active" : ""} key={theme.value} onClick={() => patch({ theme: theme.value })}>{theme.label}</button>)}</div>
         <ToggleSetting checked={settings.reducedMotion} label="减少动态效果" description="停止浮标呼吸与轻微摆动，更适合长时间放在屏幕一角。" onChange={(value) => patch({ reducedMotion: value })} />
       </article>
-      <aside className="settings-save-card"><div><strong>设置保存在本机</strong><p>不需要登录，也不会同步到网络。关闭浮标不会停止正在进行的钓鱼。</p></div><button className="primary-button" disabled={!settingsLoaded || !dirty || saving} onClick={() => void save()}>{saving ? "正在保存…" : "保存设置"}</button>{message && <div className="error-strip" role="status">{message}</div>}</aside>
+      <aside className="settings-save-card"><strong>保存本次修改</strong><button className="primary-button" disabled={!settingsLoaded || !dirty || saving} onClick={() => void save()}>{saving ? "正在保存…" : "保存设置"}</button>{message && <div className="error-strip" role="status">{message}</div>}</aside>
     </div>
   </section>;
 }

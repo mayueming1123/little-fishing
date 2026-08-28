@@ -23,8 +23,8 @@
       {
         "label": "bobber",
         "title": "小小钓鱼浮标",
-        "width": 108,
-        "height": 108,
+        "width": 308,
+        "height": 150,
         "resizable": false,
         "maximizable": false,
         "minimizable": false,
@@ -35,6 +35,7 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "focus": false,
+        "visible": false,
         "center": true
       },
       {

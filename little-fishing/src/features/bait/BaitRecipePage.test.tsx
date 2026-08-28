@@ -26,28 +26,52 @@ describe("BaitRecipePage", () => {
     vi.clearAllMocks();
   });
 
-  it("can save a copy without replacing the selected recipe", async () => {
+  it("can copy a saved recipe into a separate new draft", async () => {
     vi.mocked(getBaitEditorData).mockResolvedValue(editorData);
     vi.mocked(saveBaitRecipe).mockResolvedValue({} as never);
     render(<BaitRecipePage isFishing={false} onSaved={vi.fn().mockResolvedValue(undefined)} />);
     expect((await screen.findByLabelText("配方名称") as HTMLInputElement).value).toBe("周末饵");
     expect(screen.getByRole("img", { name: "玉米粉像素图标" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "另存为新方案" }));
+    fireEvent.click(screen.getByRole("button", { name: "以此为模板新建" }));
+    expect((screen.getByLabelText("配方名称") as HTMLInputElement).value).toBe("周末饵副本");
+    fireEvent.click(screen.getByRole("button", { name: "保存并选用新配方" }));
 
     await waitFor(() => expect(saveBaitRecipe).toHaveBeenCalledWith(
-      2,
-      "周末饵",
+      null,
+      "周末饵副本",
       [{ ingredientId: 1, percentage: 2 }],
       true,
     ));
+  });
+
+  it("starts a genuinely blank recipe and can clear it again", async () => {
+    vi.mocked(getBaitEditorData).mockResolvedValue(editorData);
+    render(<BaitRecipePage isFishing={false} onSaved={vi.fn().mockResolvedValue(undefined)} />);
+    await screen.findByLabelText("配方名称");
+
+    fireEvent.click(screen.getByRole("button", { name: /新建空白配方/ }));
+
+    const name = screen.getByLabelText("配方名称") as HTMLInputElement;
+    const amount = screen.getByRole("spinbutton") as HTMLInputElement;
+    expect(name.value).toBe("新配方");
+    expect(amount.value).toBe("");
+    expect((screen.getByLabelText("直接选用已保存配方") as HTMLSelectElement).value).toBe("");
+
+    fireEvent.change(name, { target: { value: "临时空白饵" } });
+    fireEvent.change(amount, { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "清空全部内容" }));
+
+    expect(name.value).toBe("新配方");
+    expect(amount.value).toBe("");
+    expect(screen.getByRole("status").textContent).toContain("重新清空");
   });
 
   it("switches among saved recipes", async () => {
     vi.mocked(getBaitEditorData).mockResolvedValue(editorData);
     vi.mocked(selectBaitRecipe).mockResolvedValue({} as never);
     render(<BaitRecipePage isFishing={false} onSaved={vi.fn().mockResolvedValue(undefined)} />);
-    const select = await screen.findByLabelText("已保存方案");
+    const select = await screen.findByLabelText("直接选用已保存配方");
 
     fireEvent.change(select, { target: { value: "1" } });
 
@@ -62,7 +86,7 @@ describe("BaitRecipePage", () => {
 
     fireEvent.change(name, { target: { value: "临时名字" } });
     fireEvent.change(amount, { target: { value: "9" } });
-    fireEvent.click(screen.getByRole("button", { name: "重置未保存修改" }));
+    fireEvent.click(screen.getByRole("button", { name: "恢复已保存内容" }));
 
     expect(name.value).toBe("周末饵");
     expect(amount.value).toBe("2");
@@ -85,10 +109,10 @@ describe("BaitRecipePage", () => {
     render(<BaitRecipePage isFishing={false} onSaved={vi.fn().mockResolvedValue(undefined)} />);
     await screen.findByLabelText("配方名称");
 
-    fireEvent.click(screen.getByRole("button", { name: "删除当前方案" }));
+    fireEvent.click(screen.getByRole("button", { name: "删除当前配方" }));
 
     await waitFor(() => expect(deleteBaitRecipe).toHaveBeenCalledWith(2));
-    await waitFor(() => expect((screen.getByLabelText("已保存方案") as HTMLSelectElement).value).toBe("1"));
+    await waitFor(() => expect((screen.getByLabelText("直接选用已保存配方") as HTMLSelectElement).value).toBe("1"));
     expect(screen.getByRole("status").textContent).toContain("已切回综合试钓饵");
     confirm.mockRestore();
   });
@@ -97,6 +121,6 @@ describe("BaitRecipePage", () => {
     vi.mocked(getBaitEditorData).mockResolvedValue({ ...editorData, recipeId: 1, recipeName: "综合试钓饵" });
     render(<BaitRecipePage isFishing={false} onSaved={vi.fn().mockResolvedValue(undefined)} />);
 
-    expect((await screen.findByRole("button", { name: "删除当前方案" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((await screen.findByRole("button", { name: "删除当前配方" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -20,6 +20,7 @@ import {
 } from "../../ipc/client";
 import { formatClock, formatElapsed } from "../../lib/time";
 import { DailyFishHintCard } from "./DailyFishHintCard";
+import { GameSectionIcon } from "./GameSectionIcon";
 
 const eventCategoryLabels = {
   environment: "岸边",
@@ -29,26 +30,26 @@ const eventCategoryLabels = {
   story: "插曲",
 } as const;
 
-const navigation: Array<{ id: MainSection; label: string; icon: string }> = [
-  { id: "fishing", label: "钓鱼", icon: "🎣" },
-  { id: "basket", label: "鱼篓", icon: "🧺" },
-  { id: "treasure", label: "藏宝室", icon: "💎" },
-  { id: "log", label: "日志", icon: "📜" },
-  { id: "fish", label: "鱼类", icon: "🐟" },
-  { id: "bait", label: "鱼饵", icon: "🌽" },
-  { id: "store", label: "商店", icon: "🛍️" },
-  { id: "settings", label: "设置", icon: "⚙️" },
+const navigation: Array<{ id: MainSection; label: string }> = [
+  { id: "fishing", label: "钓鱼" },
+  { id: "basket", label: "鱼篓" },
+  { id: "treasure", label: "藏宝室" },
+  { id: "log", label: "日志" },
+  { id: "fish", label: "鱼类" },
+  { id: "bait", label: "鱼饵" },
+  { id: "store", label: "商店" },
+  { id: "settings", label: "设置" },
 ];
 
 const sectionCopy: Record<MainSection, { title: string; subtitle: string }> = {
   fishing: { title: "今天也慢慢等一竿", subtitle: "不催促，不保底，水下什么时候有结果没人知道。" },
   basket: { title: "钓上来的鱼先放在这里", subtitle: "鱼获不会催你处理，想吃掉或卖掉时再来看看。" },
-  treasure: { title: "把偶遇的奇妙东西摆起来", subtitle: "神秘奇遇不会塞进鱼篓，它们会安静地留在展示架上。" },
+  treasure: { title: "把偶遇的奇妙东西摆起来", subtitle: "偶遇过的奇妙东西，会安静地留在展示架上。" },
   log: { title: "每一竿都留下一点动静", subtitle: "回头看看等待、空军，以及已经发生过的每一竿。" },
-  fish: { title: "每条鱼都有自己的记录", subtitle: "筛选已钓到或未钓到的鱼；隐藏偏好仍然不会显示。" },
+  fish: { title: "每条鱼都有自己的记录", subtitle: "翻翻已经遇见和还没遇见的鱼。" },
   bait: { title: "随手调一份今天的鱼饵", subtitle: "自由搭配成分与比例，五维属性会随配方实时变化。" },
   store: { title: "给桌面浮标换个伙伴", subtitle: "金币换外观与永久 Buff，累计排泄量解锁趣味成就。" },
-  settings: { title: "把陪伴方式调得顺手一点", subtitle: "通知、浮标和显示选项都只保存在这台电脑。" },
+  settings: { title: "把陪伴方式调得顺手一点", subtitle: "通知、浮标和显示方式都可以在这里调整。" },
 };
 
 const showTestControls = import.meta.env.DEV;
@@ -114,6 +115,7 @@ export function MainWindow() {
     ? latestWaitingEvent?.description ?? state?.statusText ?? "浮标轻轻立在水面，暂时没有别的动静。"
     : state?.lastResult ?? "岸边很安静，随时可以开始。";
   const companion = getBobberSkin(settings.bobberSkin);
+  const currentNavigation = navigation.find((item) => item.id === section) ?? navigation[0];
 
   async function testNotification() {
     const sent = await sendPrototypeNotification();
@@ -167,13 +169,15 @@ export function MainWindow() {
 
   return <main className="app-shell">
     <header className="app-topbar">
-      <div className="brand"><div className="brand-mark" aria-hidden="true">│</div><div><strong>小小钓鱼</strong><small>桌面钓鱼陪伴</small></div></div>
+      <div className="brand"><div className="brand-mark"><GameSectionIcon section="fishing" /></div><div><strong>小小钓鱼</strong><small>湖畔陪伴手账</small></div></div>
       {!isTauriRuntime() && <span className="runtime-badge">前端预览模式</span>}
     </header>
 
     <section className="content">
-      <header className="content-header">
-        <div><p className="eyebrow">FISHING COMPANION</p><h1>{sectionCopy[section].title}</h1><p className="subtitle">{sectionCopy[section].subtitle}</p></div>
+      <header className={`content-header section-${section}`}>
+        <div className="content-header-emblem"><GameSectionIcon section={section} /></div>
+        <div className="content-header-copy"><p className="eyebrow">湖畔手账 · {currentNavigation.label}</p><h1>{sectionCopy[section].title}</h1><p className="subtitle">{sectionCopy[section].subtitle}</p></div>
+        <div className="content-header-sparkles" aria-hidden="true"><i /><i /><i /></div>
       </header>
       {mainContent}
     </section>
@@ -184,7 +188,7 @@ export function MainWindow() {
         className={`nav-item ${section === item.id ? "active" : ""}`}
         aria-current={section === item.id ? "page" : undefined}
         onClick={() => setSection(item.id)}
-      ><span className="dock-icon" aria-hidden="true">{item.icon}</span><span className="dock-label">{item.label}</span></button>)}
+      ><span className="dock-icon"><GameSectionIcon section={item.id} /></span><span className="dock-label">{item.label}</span></button>)}
     </nav>
   </main>;
 }

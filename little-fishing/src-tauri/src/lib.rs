@@ -44,6 +44,12 @@ const ACHIEVEMENT_POOP_KG: f64 = 1_000.0;
 const SHORTER_ROUNDS_BUFF_ID: &str = "shorter_rounds_30";
 const SHORTER_ROUNDS_BUFF_PRICE: f64 = 30_000.0;
 const SHORTER_ROUNDS_MULTIPLIER: f64 = 0.70;
+const BOBBER_COLLAPSED_WIDTH: f64 = 108.0;
+const BOBBER_COLLAPSED_HEIGHT: f64 = 108.0;
+#[cfg(not(windows))]
+const BOBBER_NAV_WIDTH: f64 = 308.0;
+#[cfg(not(windows))]
+const BOBBER_NAV_HEIGHT: f64 = 150.0;
 
 fn shop_skin_price(value: &str) -> Option<f64> {
     match value {
@@ -391,11 +397,7 @@ impl Default for AppSettings {
 
 impl AppSettings {
     fn from_stored(value: StoredAppSettings, autostart_enabled: bool) -> Self {
-        let theme = if matches!(value.theme.as_str(), "system" | "light" | "dark") {
-            value.theme
-        } else {
-            "system".to_owned()
-        };
+        let theme = "light".to_owned();
         let bobber_skin = if is_known_skin_id(&value.bobber_skin) {
             value.bobber_skin
         } else {
@@ -797,20 +799,36 @@ fn place_bobber_initially(app: &AppHandle) {
     let Some(bobber) = app.get_webview_window("bobber") else {
         return;
     };
-    let (Ok(Some(monitor)), Ok(size)) = (app.primary_monitor(), bobber.outer_size()) else {
+    let (Ok(Some(monitor)), Ok(size), Ok(scale_factor)) = (
+        app.primary_monitor(),
+        bobber.outer_size(),
+        bobber.scale_factor(),
+    ) else {
         return;
     };
+    let collapsed_size: tauri::PhysicalSize<u32> = tauri::LogicalSize::new(
+        BOBBER_COLLAPSED_WIDTH,
+        BOBBER_COLLAPSED_HEIGHT,
+    )
+    .to_physical(scale_factor);
+    let character_right = size
+        .width
+        .saturating_sub(collapsed_size.width)
+        .saturating_div(2)
+        .saturating_add(collapsed_size.width);
     let monitor_position = monitor.position();
     let monitor_size = monitor.size();
     let x = monitor_position
         .x
         .saturating_add(monitor_size.width as i32)
-        .saturating_sub(size.width as i32)
+        .saturating_sub(character_right as i32)
         .saturating_sub(48);
     let y = monitor_position
         .y
         .saturating_add(monitor_size.height as i32 / 3);
     let _ = bobber.set_position(tauri::PhysicalPosition::new(x, y));
+    #[cfg(windows)]
+    let _ = set_bobber_window_region(&bobber, false);
 }
 
 fn toggle_fishing(app: &AppHandle) -> PrototypeSnapshot {
@@ -868,14 +886,25 @@ fn position_panel_near_bobber(app: &AppHandle) {
     ) else {
         return;
     };
-    let (Ok(position), Ok(size), Ok(panel_size), Ok(Some(monitor))) = (
+    let (Ok(position), Ok(size), Ok(panel_size), Ok(Some(monitor)), Ok(scale_factor)) = (
         bobber.outer_position(),
         bobber.outer_size(),
         panel.outer_size(),
         bobber.current_monitor(),
+        bobber.scale_factor(),
     ) else {
         return;
     };
+    let character_size: tauri::PhysicalSize<u32> = tauri::LogicalSize::new(
+        BOBBER_COLLAPSED_WIDTH,
+        BOBBER_COLLAPSED_HEIGHT,
+    )
+    .to_physical(scale_factor);
+    let character_left = position.x.saturating_add(
+        size.width
+            .saturating_sub(character_size.width)
+            .saturating_div(2) as i32,
+    );
     let monitor_position = monitor.position();
     let monitor_size = monitor.size();
     let monitor_right = monitor_position.x.saturating_add(monitor_size.width as i32);
@@ -884,13 +913,12 @@ fn position_panel_near_bobber(app: &AppHandle) {
         .saturating_add(monitor_size.height as i32);
     let panel_width = panel_size.width as i32;
     let panel_height = panel_size.height as i32;
-    let preferred_left = position.x.saturating_sub(panel_width.saturating_add(12));
+    let preferred_left = character_left.saturating_sub(panel_width.saturating_add(12));
     let preferred_x = if preferred_left >= monitor_position.x {
         preferred_left
     } else {
-        position
-            .x
-            .saturating_add(size.width as i32)
+        character_left
+            .saturating_add(character_size.width as i32)
             .saturating_add(12)
     };
     let panel_x = preferred_x.clamp(
@@ -899,7 +927,7 @@ fn position_panel_near_bobber(app: &AppHandle) {
     );
     let centered_y = position
         .y
-        .saturating_add(size.height as i32 / 2)
+        .saturating_add(character_size.height as i32 / 2)
         .saturating_sub(panel_height / 2);
     let panel_y = centered_y.clamp(
         monitor_position.y,
@@ -1513,9 +1541,7 @@ fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
 
 #[tauri::command]
 fn update_app_settings(app: AppHandle, mut settings: AppSettings) -> Result<AppSettings, String> {
-    if !matches!(settings.theme.as_str(), "system" | "light" | "dark") {
-        return Err("未知的界面主题".to_owned());
-    }
+    settings.theme = "light".to_owned();
     if !is_known_skin_id(&settings.bobber_skin) {
         return Err("未知的悬浮猫咪皮肤".to_owned());
     }
@@ -1570,6 +1596,113 @@ fn request_local_admin_access(window: WebviewWindow, app: AppHandle) -> Result<(
 #[tauri::command]
 fn show_main_window(app: AppHandle) {
     show_main(&app);
+}
+
+#[tauri::command]
+fn open_main_section(app: AppHandle, section: String) -> Result<(), String> {
+    if !matches!(
+        section.as_str(),
+        "fishing" | "basket" | "treasure" | "log" | "fish" | "bait" | "store" | "settings"
+    ) {
+        return Err("未知的主窗口页面".to_owned());
+    }
+    show_main(&app);
+    app.get_webview_window("main")
+        .ok_or("main window not found")?
+        .emit(MAIN_NAVIGATE_EVENT, section)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_bobber_navigation_expanded(app: AppHandle, expanded: bool) -> Result<(), String> {
+    let bobber = app
+        .get_webview_window("bobber")
+        .ok_or("bobber window not found")?;
+    #[cfg(windows)]
+    {
+        return set_bobber_window_region(&bobber, expanded);
+    }
+
+    #[cfg(not(windows))]
+    let scale_factor = bobber.scale_factor().map_err(|error| error.to_string())?;
+    #[cfg(not(windows))]
+    let position = bobber.outer_position().map_err(|error| error.to_string())?;
+    #[cfg(not(windows))]
+    let current_size = bobber.outer_size().map_err(|error| error.to_string())?;
+    #[cfg(not(windows))]
+    let logical_size = if expanded {
+        tauri::LogicalSize::new(BOBBER_NAV_WIDTH, BOBBER_NAV_HEIGHT)
+    } else {
+        tauri::LogicalSize::new(BOBBER_COLLAPSED_WIDTH, BOBBER_COLLAPSED_HEIGHT)
+    };
+    #[cfg(not(windows))]
+    let target_size: tauri::PhysicalSize<u32> = logical_size.to_physical(scale_factor);
+    #[cfg(not(windows))]
+    if current_size == target_size {
+        return Ok(());
+    }
+
+    #[cfg(not(windows))]
+    let center_offset = (i64::from(current_size.width) - i64::from(target_size.width)) / 2;
+    #[cfg(not(windows))]
+    let target_x = i64::from(position.x)
+        .saturating_add(center_offset)
+        .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+    #[cfg(not(windows))]
+    let target_position = tauri::PhysicalPosition::new(target_x, position.y);
+    #[cfg(not(windows))]
+    {
+        bobber.set_size(logical_size).map_err(|error| error.to_string())?;
+        bobber
+            .set_position(target_position)
+            .map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(windows)]
+fn set_bobber_window_region(bobber: &WebviewWindow, expanded: bool) -> Result<(), String> {
+    use windows::Win32::Graphics::Gdi::{
+        CreateRectRgn, DeleteObject, HGDIOBJ, SetWindowRgn,
+    };
+
+    let scale_factor = bobber.scale_factor().map_err(|error| error.to_string())?;
+    let window_size = bobber.outer_size().map_err(|error| error.to_string())?;
+    let collapsed_size: tauri::PhysicalSize<u32> = tauri::LogicalSize::new(
+        BOBBER_COLLAPSED_WIDTH,
+        BOBBER_COLLAPSED_HEIGHT,
+    )
+    .to_physical(scale_factor);
+    let left = if expanded {
+        0
+    } else {
+        window_size
+            .width
+            .saturating_sub(collapsed_size.width)
+            .saturating_div(2) as i32
+    };
+    let right = if expanded {
+        window_size.width as i32
+    } else {
+        left.saturating_add(collapsed_size.width as i32)
+    };
+    let bottom = if expanded {
+        window_size.height as i32
+    } else {
+        collapsed_size.height as i32
+    };
+    let hwnd = bobber.hwnd().map_err(|error| error.to_string())?;
+    let region = unsafe { CreateRectRgn(left, 0, right, bottom) };
+    if region.0.is_null() {
+        return Err("failed to create bobber window region".to_owned());
+    }
+    let applied = unsafe { SetWindowRgn(hwnd, Some(region), true) };
+    if applied == 0 {
+        unsafe {
+            let _ = DeleteObject(HGDIOBJ(region.0));
+        }
+        return Err("failed to update bobber window region".to_owned());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1796,6 +1929,8 @@ pub fn run() {
             update_app_settings,
             request_local_admin_access,
             show_main_window,
+            open_main_section,
+            set_bobber_navigation_expanded,
             toggle_compact_panel,
             show_bobber_context_menu,
             request_app_exit,
@@ -1819,6 +1954,13 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_theme_settings_are_normalized_to_light() {
+        let mut stored = StoredAppSettings::default();
+        stored.theme = "dark".to_owned();
+        assert_eq!(AppSettings::from_stored(stored, false).theme, "light");
+    }
 
     #[test]
     fn shop_skin_prices_follow_the_catalog() {

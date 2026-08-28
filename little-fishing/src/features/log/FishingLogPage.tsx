@@ -50,7 +50,7 @@ export function FishingLogPage({ revision }: { revision: number }) {
   }
 
   return <section className="section-page">
-    <div className="section-intro"><div><h2>钓鱼日志</h2><p>每一竿的等待、过程动静和最终结果都会留在这里。鱼获可以晚点处理，不会打断后台自动抛竿。</p></div><span>最近 {entries.length} 竿</span></div>
+    <div className="section-intro"><div><h2>钓鱼日志</h2><p>每一竿的等待、过程动静和结果都留在这里。</p></div><span>最近 {entries.length} 竿</span></div>
 
     <div className="player-summary-grid">
       <article><span>累计产屎量</span><strong>{(summary?.poopKg ?? 0).toFixed(2)} kg</strong><small>吃掉鱼获后逐渐累计</small></article>

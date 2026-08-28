@@ -45,7 +45,7 @@ export function formatDailyFishHint(hint: DailyFishHint): string {
 
 export function DailyFishHintCard({ hint }: { hint: DailyFishHint | null }) {
   return <article className="paper-card underwater-hint-card">
-    <div className="underwater-hint-heading"><span aria-hidden="true">◌</span><div><h3>水下悄悄话</h3><small>每天只透露一点原料方向，不展示比例与匹配度</small></div></div>
+    <div className="underwater-hint-heading"><span aria-hidden="true">◌</span><h3>水下悄悄话</h3></div>
     <p>{hint ? formatDailyFishHint(hint) : "今天的水下口味还没有露出线索，再等一会儿看看。"}</p>
   </article>;
 }

@@ -141,7 +141,7 @@ impl Default for StoredAppSettings {
             notifications_enabled: true,
             bobber_visible: true,
             bobber_always_on_top: true,
-            theme: "system".to_owned(),
+            theme: "light".to_owned(),
             reduced_motion: false,
             bobber_skin: "orange".to_owned(),
         }
@@ -376,7 +376,7 @@ impl SqliteStore {
                  notifications_enabled INTEGER NOT NULL DEFAULT 1,
                  bobber_visible INTEGER NOT NULL DEFAULT 1,
                  bobber_always_on_top INTEGER NOT NULL DEFAULT 1,
-                 theme TEXT NOT NULL DEFAULT 'system',
+                 theme TEXT NOT NULL DEFAULT 'light',
                  reduced_motion INTEGER NOT NULL DEFAULT 0,
                  bobber_skin TEXT NOT NULL DEFAULT 'orange',
                  updated_at TEXT NOT NULL
@@ -620,7 +620,7 @@ impl SqliteStore {
             "INSERT OR IGNORE INTO app_settings (
                  id, notifications_enabled, bobber_visible,
                  bobber_always_on_top, theme, reduced_motion, bobber_skin, updated_at
-             ) VALUES (1, 1, 1, 1, 'system', 0, 'orange', '1970-01-01T00:00:00Z')",
+             ) VALUES (1, 1, 1, 1, 'light', 0, 'orange', '1970-01-01T00:00:00Z')",
             [],
         )?;
         Ok(Self {

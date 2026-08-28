@@ -35,6 +35,14 @@ let mockSkinStore: SkinStoreState = {
   ownedSkinIds: ["orange"],
   ownedBuffIds: [],
 };
+const mockTreasureRecords: TreasureRecord[] = [
+  { treasureId: 1, discovered: true, name: "巨大的黑色珍珠", description: "一颗大得不讲道理的黑色珍珠，表面会浮起很淡的彩光。", foundCount: 2 },
+  { treasureId: 2, discovered: true, name: "白雪公主的水晶鞋", description: "尺寸小得离谱，但鞋面仍然一尘不染。", foundCount: 1 },
+  { treasureId: 3, discovered: false, name: "？？？", description: "尚未发现", foundCount: 0 },
+  { treasureId: 4, discovered: false, name: "？？？", description: "尚未发现", foundCount: 0 },
+  { treasureId: 5, discovered: false, name: "？？？", description: "尚未发现", foundCount: 0 },
+  { treasureId: 6, discovered: false, name: "？？？", description: "尚未发现", foundCount: 0 },
+];
 let mockAdminSnapshot: AdminSnapshot = {
   player: { poopKg: 0, money: 12800, pendingCatches: 2, eatenCount: 16, soldCount: 9 },
   baitName: "综合试钓饵",
@@ -122,7 +130,7 @@ export async function getFishRecords(): Promise<FishRecord[]> {
 }
 
 export async function getTreasureRecords(): Promise<TreasureRecord[]> {
-  return isTauriRuntime() ? invoke<TreasureRecord[]>("get_treasure_records") : [];
+  return isTauriRuntime() ? invoke<TreasureRecord[]>("get_treasure_records") : mockTreasureRecords;
 }
 
 export async function getPlayerSummary(): Promise<PlayerSummary> {
@@ -266,6 +274,14 @@ export async function subscribeAppSettings(listener: (settings: AppSettings) => 
 
 export async function showMainWindow(): Promise<void> {
   if (isTauriRuntime()) await invoke("show_main_window");
+}
+
+export async function openMainSection(section: MainSection): Promise<void> {
+  if (isTauriRuntime()) await invoke("open_main_section", { section });
+}
+
+export async function setBobberNavigationExpanded(expanded: boolean): Promise<void> {
+  if (isTauriRuntime()) await invoke("set_bobber_navigation_expanded", { expanded });
 }
 
 export async function toggleCompactPanel(): Promise<void> {

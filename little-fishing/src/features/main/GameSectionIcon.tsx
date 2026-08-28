@@ -1,0 +1,13 @@
+import type { MainSection } from "../../domain/prototype";
+
+export function GameSectionIcon({ section, className = "" }: { section: MainSection; className?: string }) {
+  const common = { className: `game-section-icon ${className}`.trim(), viewBox: "0 0 32 32", "aria-hidden": true } as const;
+  if (section === "fishing") return <svg {...common}><path d="M7 23c4-3 14-3 18 0v4H7z" fill="#7bd1da" /><path d="M19 6c5 3 6 8 4 15" fill="none" stroke="#8a674c" strokeWidth="2.4" strokeLinecap="round" /><path d="M23 20v5" stroke="#e9b453" strokeWidth="2" /><circle cx="23" cy="26" r="2.5" fill="#ef6b65" /></svg>;
+  if (section === "basket") return <svg {...common}><path d="M6 13h20l-2 13H8z" fill="#e8b86b" stroke="#9b7044" strokeWidth="1.7" /><path d="M10 13c1-8 11-8 12 0" fill="none" stroke="#9b7044" strokeWidth="2" /><path d="M12 16v7m4-7v7m4-7v7" stroke="#fff1c9" strokeWidth="1.5" /></svg>;
+  if (section === "treasure") return <svg {...common}><path d="M5 13h22v13H5z" rx="3" fill="#d79a54" stroke="#845933" strokeWidth="1.7" /><path d="M6 13c1-8 19-8 20 0z" fill="#f0bd67" stroke="#845933" strokeWidth="1.7" /><path d="M14 12h5v14h-5z" fill="#ffe387" /><circle cx="16.5" cy="18" r="2.4" fill="#8bc9c2" /></svg>;
+  if (section === "log") return <svg {...common}><path d="M7 5h18v23H7z" rx="3" fill="#f4d99c" stroke="#9d7956" strokeWidth="1.7" /><path d="M11 11h10m-10 5h10m-10 5h7" stroke="#d27768" strokeWidth="2" strokeLinecap="round" /><path d="M9 5v23" stroke="#d0a567" strokeWidth="2" /></svg>;
+  if (section === "fish") return <svg {...common}><path d="M5 16c5-8 13-9 20-3l4-4-1 7 1 7-4-4c-7 6-15 5-20-3z" fill="#72c6d5" stroke="#438d9a" strokeWidth="1.7" /><circle cx="11" cy="14" r="1.5" fill="#294f55" /><path d="M15 18c2 1 4 1 6 0" fill="none" stroke="#fff" strokeWidth="1.4" strokeLinecap="round" /></svg>;
+  if (section === "bait") return <svg {...common}><path d="M17 5c7 3 8 14 2 22-8-2-11-12-6-20z" fill="#f1c95d" stroke="#a77a33" strokeWidth="1.7" /><path d="M13 9l8 14m-10-8 9-4m-8 9 10-4" stroke="#fff0a0" strokeWidth="1.3" /><path d="M12 20c-5-1-7-5-7-9 5 1 7 4 8 8m7 5c5-2 7-5 7-9-4 0-7 3-8 7" fill="#77b969" /></svg>;
+  if (section === "store") return <svg {...common}><path d="M6 11h20l-1 16H7z" rx="3" fill="#8ecfc4" stroke="#4c8c84" strokeWidth="1.7" /><path d="M11 12c0-8 10-8 10 0" fill="none" stroke="#4c8c84" strokeWidth="2" /><path d="M16 17c-4-4-8 2 0 7 8-5 4-11 0-7z" fill="#f58f96" /></svg>;
+  return <svg {...common}><path d="M16 5l2 3 4-1 1 4 4 1-1 4 2 3-3 3v4l-4 1-2 3-4-2-4 2-2-3-4-1v-4l-3-3 2-3-1-4 4-1 1-4 4 1z" fill="#b9a4d9" stroke="#776496" strokeWidth="1.5" /><circle cx="16" cy="17" r="5" fill="#fff4c9" /><circle cx="16" cy="17" r="2" fill="#6ca6a1" /></svg>;
+}
