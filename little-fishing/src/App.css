@@ -1187,3 +1187,27 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
   box-shadow: none;
 }
 .nav-item.active .dock-icon { color: #347873; }
+
+/* 八个主入口始终按可用宽度均分，macOS 不再出现横向滚动条。 */
+.dock-nav {
+  width: min(424px, calc(100vw - 16px));
+  max-width: none;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  display: grid;
+  align-items: end;
+  gap: 2px;
+  overflow: visible;
+}
+.nav-item {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+}
+
+@media (max-width: 440px) {
+  .dock-nav { gap: 0; padding-inline: 4px; }
+  .nav-item { padding-inline: 1px; }
+  .dock-icon,
+  .nav-item.active .dock-icon { width: 25px; height: 25px; }
+  .dock-label { font-size: 8px; }
+}

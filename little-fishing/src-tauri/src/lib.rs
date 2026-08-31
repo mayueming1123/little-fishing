@@ -708,7 +708,7 @@ fn resolve_current_round(
 fn show_main(app: &AppHandle) {
     clear_bobber_alert(app);
     if let Some(panel) = app.get_webview_window("panel") {
-        let _ = panel.hide();
+        let _ = hide_panel_and_refresh_bobber(app, &panel);
     }
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
@@ -936,12 +936,60 @@ fn position_panel_near_bobber(app: &AppHandle) {
     let _ = panel.set_position(tauri::PhysicalPosition::new(panel_x, panel_y));
 }
 
+#[cfg(windows)]
+fn redraw_bobber_surface(bobber: &WebviewWindow) {
+    use windows::Win32::Graphics::Gdi::{
+        RDW_ALLCHILDREN, RDW_INVALIDATE, RDW_NOERASE, RDW_UPDATENOW, RedrawWindow,
+    };
+
+    if let Ok(hwnd) = bobber.hwnd() {
+        unsafe {
+            let _ = RedrawWindow(
+                Some(hwnd),
+                None,
+                None,
+                RDW_INVALIDATE | RDW_NOERASE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+            );
+        }
+    }
+}
+
+fn refresh_bobber_after_panel_close(app: &AppHandle) {
+    #[cfg(windows)]
+    if let Some(bobber) = app.get_webview_window("bobber") {
+        redraw_bobber_surface(&bobber);
+
+        // The panel hide and WebView2 composition are completed on adjacent
+        // message-loop turns. Redraw once more after that transition so the
+        // transparent bobber cannot retain a caption-sized stale surface.
+        let app_handle = app.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(40));
+            let redraw_handle = app_handle.clone();
+            let _ = app_handle.run_on_main_thread(move || {
+                if let Some(bobber) = redraw_handle.get_webview_window("bobber") {
+                    redraw_bobber_surface(&bobber);
+                }
+            });
+        });
+    }
+}
+
+fn hide_panel_and_refresh_bobber(
+    app: &AppHandle,
+    panel: &WebviewWindow,
+) -> Result<(), String> {
+    panel.hide().map_err(|error| error.to_string())?;
+    refresh_bobber_after_panel_close(app);
+    Ok(())
+}
+
 fn toggle_panel(app: &AppHandle) -> Result<(), String> {
     let panel = app
         .get_webview_window("panel")
         .ok_or("panel window not found")?;
     if panel.is_visible().map_err(|error| error.to_string())? {
-        panel.hide().map_err(|error| error.to_string())?;
+        hide_panel_and_refresh_bobber(app, &panel)?;
     } else {
         position_panel_near_bobber(app);
         panel.show().map_err(|error| error.to_string())?;
@@ -1899,6 +1947,9 @@ pub fn run() {
                 if !quitting {
                     api.prevent_close();
                     let _ = window.hide();
+                    if window.label() == "panel" {
+                        refresh_bobber_after_panel_close(window.app_handle());
+                    }
                 }
             }
         })
