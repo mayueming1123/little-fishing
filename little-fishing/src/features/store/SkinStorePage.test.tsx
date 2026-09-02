@@ -60,6 +60,28 @@ describe("SkinStorePage", () => {
     expect(await screen.findByText("购买成功，皮肤已经放进设置里。")).toBeTruthy();
   });
 
+  it("lists the ditto skin for 100000 coins", async () => {
+    render(<SkinStorePage />);
+
+    expect(await screen.findByText("百变怪")).toBeTruthy();
+    expect(screen.getAllByText("100,000")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "还差 40,000 金币" })).toHaveLength(2);
+  });
+
+  it("lists the cute dog skin for 100000 coins", async () => {
+    render(<SkinStorePage />);
+
+    expect(await screen.findByText("修狗")).toBeTruthy();
+  });
+
+  it("lists the pink rabbit skin for 50000 coins", async () => {
+    render(<SkinStorePage />);
+
+    expect(await screen.findByText("粉兔兔")).toBeTruthy();
+    expect(screen.getAllByText("50,000")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "购买 · 50,000 金币" })).toHaveLength(2);
+  });
+
   it("claims the bengal reward without spending poop progress", async () => {
     render(<SkinStorePage />);
     await waitFor(() => expect(screen.getByText("孟加拉猫")).toBeTruthy());
@@ -73,9 +95,9 @@ describe("SkinStorePage", () => {
   it("hides mystery achievement skins until their matching discovery", async () => {
     render(<SkinStorePage />);
 
-    await waitFor(() => expect(screen.getAllByText("通过某种特殊成就获得。")).toHaveLength(9));
-    expect(screen.getAllByText("？？？")).toHaveLength(9);
-    expect(screen.getAllByAltText("未解锁成就皮肤剪影")).toHaveLength(9);
-    expect(screen.getAllByRole("button", { name: "通过某种特殊成就获得" })).toHaveLength(9);
+    await waitFor(() => expect(screen.getAllByText("通过某种特殊成就获得。")).toHaveLength(11));
+    expect(screen.getAllByText("？？？")).toHaveLength(11);
+    expect(screen.getAllByAltText("未解锁成就皮肤剪影")).toHaveLength(11);
+    expect(screen.getAllByRole("button", { name: "通过某种特殊成就获得" })).toHaveLength(11);
   });
 });

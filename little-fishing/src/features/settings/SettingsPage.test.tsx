@@ -65,6 +65,25 @@ describe("SettingsPage", () => {
     expect(updateAppSettings).not.toHaveBeenCalled();
   });
 
+  it("saves an independent nickname for each skin", async () => {
+    render(<SettingsPage />);
+    const grayNameInput = await screen.findByRole("textbox", { name: "灰白猫的昵称" });
+
+    fireEvent.change(grayNameInput, { target: { value: "团子" } });
+    fireEvent.click(screen.getByRole("button", { name: "橙子猫" }));
+    const orangeNameInput = screen.getByRole("textbox", { name: "橙子猫的昵称" });
+    expect((orangeNameInput as HTMLInputElement).value).toBe("小橘");
+    fireEvent.change(orangeNameInput, { target: { value: "橘宝" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+
+    await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bobberSkin: "orange",
+        skinNames: expect.objectContaining({ gray: "团子", orange: "橘宝" }),
+      }),
+    ));
+  });
+
   it("still shows purchased skins when reading other settings fails", async () => {
     vi.mocked(getAppSettings).mockRejectedValueOnce(new Error("autostart unavailable"));
     render(<SettingsPage />);

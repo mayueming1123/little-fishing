@@ -5,7 +5,8 @@ mod round_engine;
 use chrono::{DateTime, Duration as ChronoDuration, Local, SecondsFormat, Utc};
 use fishing_rules::{
     BaitIngredientInfo, FishRarity, FishRecord, FlavorVector, OutcomeTextCatalog, RoundOutcome,
-    TreasureRecord, fish_catch_chances, resolve_round,
+    TreasureRecord, bait_has_eligible_fish, fish_catch_chances, resolve_instant_hook_round,
+    resolve_round,
 };
 use persistence::{
     AdminFishRecord, DailyFishHint, FishingLogEntry, PersistedRoundState, PlayerSummary,
@@ -44,6 +45,9 @@ const ACHIEVEMENT_POOP_KG: f64 = 1_000.0;
 const SHORTER_ROUNDS_BUFF_ID: &str = "shorter_rounds_30";
 const SHORTER_ROUNDS_BUFF_PRICE: f64 = 30_000.0;
 const SHORTER_ROUNDS_MULTIPLIER: f64 = 0.70;
+const SPACE_TECH_SQUID_FISH_ID: i64 = 54;
+const SPACE_TECH_INSTANT_HOOK_ROLL_SCALE: u8 = 20;
+const SPACE_TECH_INSTANT_HOOK_DURATION_SECONDS: i64 = 1;
 const BOBBER_COLLAPSED_WIDTH: f64 = 108.0;
 const BOBBER_COLLAPSED_HEIGHT: f64 = 108.0;
 #[cfg(not(windows))]
@@ -51,13 +55,18 @@ const BOBBER_NAV_WIDTH: f64 = 308.0;
 #[cfg(not(windows))]
 const BOBBER_NAV_HEIGHT: f64 = 150.0;
 
+fn space_tech_instant_hook_roll_succeeds(roll: u8) -> bool {
+    roll == 0
+}
+
 fn shop_skin_price(value: &str) -> Option<f64> {
     match value {
         "gray" => Some(5_000.0),
         "calico" => Some(10_000.0),
         "siamese" | "samoyed" | "golden_retriever" => Some(20_000.0),
         "silver_tabby" | "tuxedo" | "ragdoll" => Some(30_000.0),
-        "tom" => Some(50_000.0),
+        "tom" | "pink_rabbit" => Some(50_000.0),
+        "ditto" | "cute_dog" => Some(100_000.0),
         _ => None,
     }
 }
@@ -84,7 +93,12 @@ fn is_known_skin_id(value: &str) -> bool {
             | "special_water_monster"
             | "special_pizza_rabbit"
             | "special_spaghetti_dog"
+            | "special_pudding_dog"
+            | "special_princess_cat"
             | "tom"
+            | "ditto"
+            | "cute_dog"
+            | "pink_rabbit"
     )
 }
 
@@ -226,7 +240,7 @@ impl PrototypeRoundState {
         self.last_result =
             Some("重新回来时，上一竿刚好有了结果；离线期间只结算这一轮。".to_owned());
         if self.is_fishing && !self.stop_after_settlement {
-            self.schedule_round(now, catalog, duration_multiplier);
+            self.schedule_round(now, catalog, duration_multiplier, false);
         } else {
             self.phase = FishingPhase::Stopped;
             self.is_fishing = false;
@@ -268,7 +282,7 @@ impl PrototypeRoundState {
         self.phase = FishingPhase::Waiting;
         self.is_fishing = true;
         self.stop_after_settlement = false;
-        self.schedule_round(now, catalog, duration_multiplier);
+        self.schedule_round(now, catalog, duration_multiplier, false);
         self.state_revision += 1;
     }
 
@@ -277,9 +291,20 @@ impl PrototypeRoundState {
         now: DateTime<Utc>,
         catalog: &EventCatalog,
         duration_multiplier: f64,
+        allow_space_tech_instant_hook: bool,
     ) {
         let mut rng = rand::rng();
-        let plan = generate_round_plan(now, &mut rng, catalog, duration_multiplier);
+        let mut plan = generate_round_plan(now, &mut rng, catalog, duration_multiplier);
+        if allow_space_tech_instant_hook
+            && space_tech_instant_hook_roll_succeeds(
+                rng.random_range(0..SPACE_TECH_INSTANT_HOOK_ROLL_SCALE),
+            )
+        {
+            plan.duration_seconds = SPACE_TECH_INSTANT_HOOK_DURATION_SECONDS;
+            plan.status_text =
+                "太空科技鱿鱼留下的装置亮了起来，这一竿立刻有鱼咬钩。".to_owned();
+            plan.waiting_events.clear();
+        }
         self.phase = FishingPhase::Waiting;
         self.is_fishing = true;
         self.stop_after_settlement = false;
@@ -380,6 +405,7 @@ struct BaitRecipeComponentInput {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AppSettings {
+    skin_names: BTreeMap<String, String>,
     notifications_enabled: bool,
     bobber_visible: bool,
     bobber_always_on_top: bool,
@@ -403,7 +429,19 @@ impl AppSettings {
         } else {
             "orange".to_owned()
         };
+        let mut skin_names = serde_json::from_str::<BTreeMap<String, String>>(&value.skin_names_json)
+            .unwrap_or_default();
+        // Databases created before per-skin names had one global companion
+        // name. Preserve it by assigning it to the skin that was active when
+        // the new version is opened.
+        if skin_names.is_empty() {
+            let legacy_name = value.companion_name.trim();
+            if !legacy_name.is_empty() {
+                skin_names.insert(bobber_skin.clone(), legacy_name.to_owned());
+            }
+        }
         Self {
+            skin_names,
             notifications_enabled: value.notifications_enabled,
             bobber_visible: value.bobber_visible,
             bobber_always_on_top: value.bobber_always_on_top,
@@ -415,7 +453,15 @@ impl AppSettings {
     }
 
     fn stored(&self) -> StoredAppSettings {
+        let companion_name = self
+            .skin_names
+            .get(&self.bobber_skin)
+            .cloned()
+            .unwrap_or_default();
         StoredAppSettings {
+            companion_name,
+            skin_names_json: serde_json::to_string(&self.skin_names)
+                .unwrap_or_else(|_| "{}".to_owned()),
             notifications_enabled: self.notifications_enabled,
             bobber_visible: self.bobber_visible,
             bobber_always_on_top: self.bobber_always_on_top,
@@ -655,7 +701,13 @@ fn resolve_with_store(
     let fish = store
         .load_fish_profiles(&local_date)
         .map_err(|error| error.to_string())?;
-    let outcome = resolve_round(&bait, &fish, outcome_text_catalog, &mut rng);
+    let outcome = if planned_duration_seconds
+        == SPACE_TECH_INSTANT_HOOK_DURATION_SECONDS as u64
+    {
+        resolve_instant_hook_round(&bait, &fish, outcome_text_catalog, &mut rng)
+    } else {
+        resolve_round(&bait, &fish, outcome_text_catalog, &mut rng)
+    };
     let settled_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
     let round_started_at =
         round_started_at.map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true));
@@ -757,6 +809,8 @@ fn apply_window_settings(app: &AppHandle, settings: &AppSettings) {
         clear_bobber_alert(app);
     }
     if let Some(bobber) = app.get_webview_window("bobber") {
+        #[cfg(windows)]
+        harden_bobber_native_window(&bobber);
         let _ = bobber.set_always_on_top(settings.bobber_always_on_top);
         if settings.bobber_visible {
             let _ = bobber.show();
@@ -799,6 +853,8 @@ fn place_bobber_initially(app: &AppHandle) {
     let Some(bobber) = app.get_webview_window("bobber") else {
         return;
     };
+    #[cfg(windows)]
+    harden_bobber_native_window(&bobber);
     let (Ok(Some(monitor)), Ok(size), Ok(scale_factor)) = (
         app.primary_monitor(),
         bobber.outer_size(),
@@ -936,6 +992,70 @@ fn position_panel_near_bobber(app: &AppHandle) {
     let _ = panel.set_position(tauri::PhysicalPosition::new(panel_x, panel_y));
 }
 
+fn space_tech_instant_hook_is_available(store: &SqliteStore, recipe_id: u64) -> bool {
+    if !store
+        .has_caught_fish(SPACE_TECH_SQUID_FISH_ID)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    let local_date = Local::now().date_naive().to_string();
+    let Ok(bait) = store.load_bait_profile(recipe_id.min(i64::MAX as u64) as i64) else {
+        return false;
+    };
+    let Ok(fish) = store.load_fish_profiles(&local_date) else {
+        return false;
+    };
+    bait_has_eligible_fish(&bait, &fish)
+}
+
+#[cfg(windows)]
+fn harden_bobber_native_window(bobber: &WebviewWindow) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GWL_STYLE, GetWindowLongPtrW, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+        SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos,
+        WS_CAPTION, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX,
+        WS_MINIMIZEBOX, WS_SYSMENU, WS_THICKFRAME,
+    };
+
+    // WebView2 can occasionally ask Windows to repaint the non-client area
+    // while this transparent window is resized or clicked. Keep both the
+    // cross-platform window flags and the native HWND style borderless so a
+    // title strip cannot be painted even for a single frame.
+    let _ = bobber.set_title("");
+    let _ = bobber.set_decorations(false);
+    let _ = bobber.set_shadow(false);
+    let _ = bobber.set_focusable(false);
+
+    if let Ok(hwnd) = bobber.hwnd() {
+        unsafe {
+            let style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+            let caption_bits = (WS_CAPTION.0
+                | WS_THICKFRAME.0
+                | WS_SYSMENU.0
+                | WS_MINIMIZEBOX.0
+                | WS_MAXIMIZEBOX.0) as isize;
+            SetWindowLongPtrW(hwnd, GWL_STYLE, style & !caption_bits);
+
+            let ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            let next_ex_style = (ex_style
+                | WS_EX_NOACTIVATE.0 as isize
+                | WS_EX_TOOLWINDOW.0 as isize)
+                & !(WS_EX_APPWINDOW.0 as isize);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next_ex_style);
+            let _ = SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
+}
+
 #[cfg(windows)]
 fn redraw_bobber_surface(bobber: &WebviewWindow) {
     use windows::Win32::Graphics::Gdi::{
@@ -943,6 +1063,7 @@ fn redraw_bobber_surface(bobber: &WebviewWindow) {
     };
 
     if let Ok(hwnd) = bobber.hwnd() {
+        harden_bobber_native_window(bobber);
         unsafe {
             let _ = RedrawWindow(
                 Some(hwnd),
@@ -954,14 +1075,15 @@ fn redraw_bobber_surface(bobber: &WebviewWindow) {
     }
 }
 
-fn refresh_bobber_after_panel_close(app: &AppHandle) {
+fn refresh_bobber_surface(app: &AppHandle) {
     #[cfg(windows)]
     if let Some(bobber) = app.get_webview_window("bobber") {
         redraw_bobber_surface(&bobber);
 
-        // The panel hide and WebView2 composition are completed on adjacent
-        // message-loop turns. Redraw once more after that transition so the
-        // transparent bobber cannot retain a caption-sized stale surface.
+        // Focus changes and panel visibility updates complete WebView2
+        // composition on adjacent message-loop turns. Redraw once more after
+        // that transition so the transparent bobber cannot retain a
+        // caption-sized stale surface.
         let app_handle = app.clone();
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(40));
@@ -980,7 +1102,7 @@ fn hide_panel_and_refresh_bobber(
     panel: &WebviewWindow,
 ) -> Result<(), String> {
     panel.hide().map_err(|error| error.to_string())?;
-    refresh_bobber_after_panel_close(app);
+    refresh_bobber_surface(app);
     Ok(())
 }
 
@@ -1119,10 +1241,15 @@ fn spawn_scheduler(app: AppHandle) {
                 }
                 state.last_result = Some(resolved.summary);
                 if state.is_fishing && !state.stop_after_settlement {
+                    let instant_hook_unlocked = space_tech_instant_hook_is_available(
+                        &persistence.store,
+                        state.selected_recipe_id,
+                    );
                     state.schedule_round(
                         Utc::now(),
                         &persistence.event_catalog,
                         round_duration_multiplier(&persistence.store),
+                        instant_hook_unlocked,
                     );
                 } else {
                     state.phase = FishingPhase::Stopped;
@@ -1590,6 +1717,21 @@ fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
 #[tauri::command]
 fn update_app_settings(app: AppHandle, mut settings: AppSettings) -> Result<AppSettings, String> {
     settings.theme = "light".to_owned();
+    let mut normalized_skin_names = BTreeMap::new();
+    for (skin_id, name) in settings.skin_names {
+        if !is_known_skin_id(&skin_id) {
+            continue;
+        }
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        if name.chars().count() > 12 || name.chars().any(char::is_control) {
+            return Err("每款皮肤的昵称最多 12 个字，且不能包含控制字符".to_owned());
+        }
+        normalized_skin_names.insert(skin_id, name.to_owned());
+    }
+    settings.skin_names = normalized_skin_names;
     if !is_known_skin_id(&settings.bobber_skin) {
         return Err("未知的悬浮猫咪皮肤".to_owned());
     }
@@ -1713,6 +1855,7 @@ fn set_bobber_window_region(bobber: &WebviewWindow, expanded: bool) -> Result<()
         CreateRectRgn, DeleteObject, HGDIOBJ, SetWindowRgn,
     };
 
+    harden_bobber_native_window(bobber);
     let scale_factor = bobber.scale_factor().map_err(|error| error.to_string())?;
     let window_size = bobber.outer_size().map_err(|error| error.to_string())?;
     let collapsed_size: tauri::PhysicalSize<u32> = tauri::LogicalSize::new(
@@ -1750,6 +1893,7 @@ fn set_bobber_window_region(bobber: &WebviewWindow, expanded: bool) -> Result<()
         }
         return Err("failed to update bobber window region".to_owned());
     }
+    harden_bobber_native_window(bobber);
     Ok(())
 }
 
@@ -1939,6 +2083,9 @@ pub fn run() {
             if window.label() == "bobber" && matches!(event, WindowEvent::Moved(_)) {
                 position_panel_near_bobber(window.app_handle());
             }
+            if window.label() == "bobber" && matches!(event, WindowEvent::Focused(_)) {
+                refresh_bobber_surface(window.app_handle());
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let quitting = window
                     .state::<LifecycleState>()
@@ -1948,7 +2095,7 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                     if window.label() == "panel" {
-                        refresh_bobber_after_panel_close(window.app_handle());
+                        refresh_bobber_surface(window.app_handle());
                     }
                 }
             }
@@ -2022,6 +2169,9 @@ mod tests {
         assert_eq!(shop_skin_price("golden_retriever"), Some(20_000.0));
         assert_eq!(shop_skin_price("silver_tabby"), Some(30_000.0));
         assert_eq!(shop_skin_price("tom"), Some(50_000.0));
+        assert_eq!(shop_skin_price("pink_rabbit"), Some(50_000.0));
+        assert_eq!(shop_skin_price("ditto"), Some(100_000.0));
+        assert_eq!(shop_skin_price("cute_dog"), Some(100_000.0));
         assert_eq!(shop_skin_price("orange"), None);
         assert_eq!(shop_skin_price("bengal"), None);
         assert_eq!(shop_skin_price("treasure_pearl"), None);
@@ -2032,8 +2182,13 @@ mod tests {
         assert!(is_known_skin_id("special_water_monster"));
         assert!(is_known_skin_id("special_pizza_rabbit"));
         assert!(is_known_skin_id("special_spaghetti_dog"));
+        assert!(is_known_skin_id("special_pudding_dog"));
+        assert!(is_known_skin_id("special_princess_cat"));
         assert!(is_known_skin_id("samoyed"));
         assert!(is_known_skin_id("golden_retriever"));
+        assert!(is_known_skin_id("ditto"));
+        assert!(is_known_skin_id("cute_dog"));
+        assert!(is_known_skin_id("pink_rabbit"));
     }
 
     #[test]
@@ -2050,6 +2205,25 @@ mod tests {
         assert_eq!(*alert.pending.lock().unwrap(), Some(BobberAlertKind::Catch));
         *alert.pending.lock().unwrap() = None;
         assert_eq!(*alert.pending.lock().unwrap(), None);
+    }
+
+    #[test]
+    fn legacy_global_companion_name_is_migrated_to_the_active_skin() {
+        let mut stored = StoredAppSettings::default();
+        stored.bobber_skin = "gray".to_owned();
+        stored.companion_name = "团子".to_owned();
+        stored.skin_names_json = "{}".to_owned();
+        let settings = AppSettings::from_stored(stored, false);
+        assert_eq!(settings.skin_names.get("gray"), Some(&"团子".to_owned()));
+        assert!(!settings.skin_names.contains_key("orange"));
+    }
+
+    #[test]
+    fn space_tech_instant_hook_has_one_winning_roll_in_twenty() {
+        let winning_rolls = (0..SPACE_TECH_INSTANT_HOOK_ROLL_SCALE)
+            .filter(|roll| space_tech_instant_hook_roll_succeeds(*roll))
+            .count();
+        assert_eq!(winning_rolls, 1);
     }
 
     #[test]

@@ -149,7 +149,6 @@ export function MainWindow() {
                         alt={`${companion.label}正在岸边钓鱼`}
                         style={{ "--companion-inset": `${companion.inset}%` } as CSSProperties}
                       />
-                      <span>当前伙伴 · {companion.label}</span>
                     </div>
                   </section>
 

@@ -22,10 +22,12 @@ const TREASURE_SKIN_REWARDS: [(i64, &str); 6] = [
     (5, "treasure_martial_manual"),
     (6, "treasure_perfume"),
 ];
-const SPECIAL_FISH_SKIN_REWARDS: [(i64, &str); 3] = [
+const SPECIAL_FISH_SKIN_REWARDS: [(i64, &str); 5] = [
     (41, "special_spaghetti_dog"),
     (42, "special_pizza_rabbit"),
     (43, "special_water_monster"),
+    (55, "special_pudding_dog"),
+    (56, "special_princess_cat"),
 ];
 const DAILY_PREFERENCE_GENERATION_VERSION: i64 = 3;
 
@@ -127,6 +129,8 @@ pub struct PersistedRoundState {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StoredAppSettings {
+    pub companion_name: String,
+    pub skin_names_json: String,
     pub notifications_enabled: bool,
     pub bobber_visible: bool,
     pub bobber_always_on_top: bool,
@@ -138,6 +142,8 @@ pub struct StoredAppSettings {
 impl Default for StoredAppSettings {
     fn default() -> Self {
         Self {
+            companion_name: "小橘".to_owned(),
+            skin_names_json: r#"{"orange":"小橘"}"#.to_owned(),
             notifications_enabled: true,
             bobber_visible: true,
             bobber_always_on_top: true,
@@ -373,6 +379,8 @@ impl SqliteStore {
 
              CREATE TABLE IF NOT EXISTS app_settings (
                  id INTEGER PRIMARY KEY CHECK (id = 1),
+                 companion_name TEXT NOT NULL DEFAULT '小橘',
+                 skin_names_json TEXT NOT NULL DEFAULT '{}',
                  notifications_enabled INTEGER NOT NULL DEFAULT 1,
                  bobber_visible INTEGER NOT NULL DEFAULT 1,
                  bobber_always_on_top INTEGER NOT NULL DEFAULT 1,
@@ -581,6 +589,18 @@ impl SqliteStore {
             "bobber_skin",
             "TEXT NOT NULL DEFAULT 'orange'",
         )?;
+        Self::ensure_column(
+            &connection,
+            "app_settings",
+            "companion_name",
+            "TEXT NOT NULL DEFAULT '小橘'",
+        )?;
+        Self::ensure_column(
+            &connection,
+            "app_settings",
+            "skin_names_json",
+            "TEXT NOT NULL DEFAULT '{}'",
+        )?;
         connection.execute(
             "UPDATE round_results SET disposition = 'not_applicable'
              WHERE result_type != 'caught' AND disposition = 'pending'",
@@ -617,10 +637,10 @@ impl SqliteStore {
             )?;
         }
         connection.execute(
-            "INSERT OR IGNORE INTO app_settings (
-                 id, notifications_enabled, bobber_visible,
+            r#"INSERT OR IGNORE INTO app_settings (
+                 id, companion_name, skin_names_json, notifications_enabled, bobber_visible,
                  bobber_always_on_top, theme, reduced_motion, bobber_skin, updated_at
-             ) VALUES (1, 1, 1, 1, 'light', 0, 'orange', '1970-01-01T00:00:00Z')",
+             ) VALUES (1, '小橘', '{"orange":"小橘"}', 1, 1, 1, 'light', 0, 'orange', '1970-01-01T00:00:00Z')"#,
             [],
         )?;
         Ok(Self {
@@ -686,18 +706,20 @@ impl SqliteStore {
     pub fn load_app_settings(&self) -> rusqlite::Result<StoredAppSettings> {
         let connection = self.connection.lock().expect("sqlite connection poisoned");
         connection.query_row(
-            "SELECT notifications_enabled, bobber_visible,
+            "SELECT companion_name, skin_names_json, notifications_enabled, bobber_visible,
                     bobber_always_on_top, theme, reduced_motion, bobber_skin
              FROM app_settings WHERE id = 1",
             [],
             |row| {
                 Ok(StoredAppSettings {
-                    notifications_enabled: row.get(0)?,
-                    bobber_visible: row.get(1)?,
-                    bobber_always_on_top: row.get(2)?,
-                    theme: row.get(3)?,
-                    reduced_motion: row.get(4)?,
-                    bobber_skin: row.get(5)?,
+                    companion_name: row.get(0)?,
+                    skin_names_json: row.get(1)?,
+                    notifications_enabled: row.get(2)?,
+                    bobber_visible: row.get(3)?,
+                    bobber_always_on_top: row.get(4)?,
+                    theme: row.get(5)?,
+                    reduced_motion: row.get(6)?,
+                    bobber_skin: row.get(7)?,
                 })
             },
         )
@@ -711,11 +733,13 @@ impl SqliteStore {
         let connection = self.connection.lock().expect("sqlite connection poisoned");
         connection.execute(
             "UPDATE app_settings
-             SET notifications_enabled = ?1, bobber_visible = ?2,
-                 bobber_always_on_top = ?3, theme = ?4,
-                 reduced_motion = ?5, bobber_skin = ?6, updated_at = ?7
+             SET companion_name = ?1, skin_names_json = ?2, notifications_enabled = ?3, bobber_visible = ?4,
+                 bobber_always_on_top = ?5, theme = ?6,
+                 reduced_motion = ?7, bobber_skin = ?8, updated_at = ?9
              WHERE id = 1",
             params![
+                settings.companion_name,
+                settings.skin_names_json,
                 settings.notifications_enabled,
                 settings.bobber_visible,
                 settings.bobber_always_on_top,
@@ -982,6 +1006,18 @@ impl SqliteStore {
                 })
             })?
             .collect()
+    }
+
+    pub fn has_caught_fish(&self, fish_id: i64) -> rusqlite::Result<bool> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.query_row(
+            "SELECT EXISTS(
+                 SELECT 1 FROM round_results
+                 WHERE fish_species_id = ?1 AND result_type = 'caught'
+             )",
+            [fish_id],
+            |row| row.get(0),
+        )
     }
 
     pub fn load_treasure_records(&self) -> rusqlite::Result<Vec<TreasureRecord>> {
@@ -1930,7 +1966,7 @@ mod tests {
                 .into_iter()
                 .filter(|fish| fish.rarity == FishRarity::Special)
                 .collect();
-            assert_eq!(special_fish.len(), 3);
+            assert_eq!(special_fish.len(), 6);
             assert!(special_fish.iter().all(|fish| fish.price_per_kg == 1_000.0));
         }
         std::fs::remove_file(database_path).expect("remove special price migration database");
@@ -2038,6 +2074,7 @@ mod tests {
         assert_eq!(state.status_text, "浮标已经就位，正在慢慢等鱼。");
         assert_eq!(catalog.counts(), (30, 30, 30, 30, 30, 30));
         assert_eq!(settings.bobber_skin, "orange");
+        assert_eq!(settings.companion_name, "小橘");
         drop(store);
         std::fs::remove_file(database_path).expect("remove migration test database");
     }
@@ -2134,9 +2171,9 @@ mod tests {
         assert_eq!(outcome_catalog.misses.len(), 30);
         assert_eq!(outcome_catalog.features.len(), 30);
         assert_eq!(bait.name, "综合试钓饵");
-        assert_eq!(first_preferences.len(), 53);
-        assert_eq!(second_preferences.len(), 53);
-        assert_eq!(admin_records.len(), 53);
+        assert_eq!(first_preferences.len(), 66);
+        assert_eq!(second_preferences.len(), 66);
+        assert_eq!(admin_records.len(), 66);
         assert!(!admin_records[0].preference_sources.is_empty());
         assert!(
             (admin_records[0]
@@ -2242,8 +2279,10 @@ mod tests {
                 &caught,
             )
             .expect("save caught outcome");
+        assert!(store.has_caught_fish(1).expect("find caught fish"));
+        assert!(!store.has_caught_fish(54).expect("keep uncaught fish false"));
         let records = store.load_fish_records().expect("load fish records");
-        assert_eq!(records.len(), 53);
+        assert_eq!(records.len(), 66);
         assert_eq!(records[0].rarity, FishRarity::Common);
         assert_eq!(records[23].rarity, FishRarity::Legendary);
         assert_eq!(records[0].caught_count, 1);
@@ -2380,6 +2419,8 @@ mod tests {
                 (1, 41, "番茄肉丸意大利面鱼"),
                 (2, 42, "披萨鱼"),
                 (3, 43, "小水怪"),
+                (4, 55, "布丁鱼"),
+                (5, 56, "公主鱼"),
             ] {
                 let caught = RoundOutcome::Caught {
                     fish_id,
@@ -2408,24 +2449,36 @@ mod tests {
             assert!(owned.iter().any(|skin| skin == "special_spaghetti_dog"));
             assert!(owned.iter().any(|skin| skin == "special_pizza_rabbit"));
             assert!(owned.iter().any(|skin| skin == "special_water_monster"));
+            assert!(owned.iter().any(|skin| skin == "special_pudding_dog"));
+            assert!(owned.iter().any(|skin| skin == "special_princess_cat"));
 
             store
                 .connection
                 .lock()
                 .expect("sqlite connection")
                 .execute(
-                    "DELETE FROM skin_unlocks WHERE skin_id = 'special_spaghetti_dog'",
+                    "DELETE FROM skin_unlocks WHERE skin_id IN (
+                        'special_spaghetti_dog',
+                        'special_pudding_dog',
+                        'special_princess_cat'
+                    )",
                     [],
                 )
                 .expect("simulate a catch from before reward skins existed");
         }
         {
             let reopened = SqliteStore::open(&database_path).expect("backfill old special catches");
-            assert!(
-                reopened
-                    .is_skin_owned("special_spaghetti_dog")
-                    .expect("check backfilled special reward")
-            );
+            for skin_id in [
+                "special_spaghetti_dog",
+                "special_pudding_dog",
+                "special_princess_cat",
+            ] {
+                assert!(
+                    reopened
+                        .is_skin_owned(skin_id)
+                        .expect("check backfilled special reward")
+                );
+            }
         }
         std::fs::remove_file(database_path).expect("remove special reward database");
     }
@@ -2438,6 +2491,8 @@ mod tests {
             StoredAppSettings::default()
         );
         let expected = StoredAppSettings {
+            companion_name: "团子".to_owned(),
+            skin_names_json: r#"{"calico":"团子"}"#.to_owned(),
             notifications_enabled: false,
             bobber_visible: false,
             bobber_always_on_top: false,
@@ -2555,7 +2610,7 @@ mod tests {
             let fish = reopened
                 .load_admin_fish_records("2026-08-24")
                 .expect("reload admin fish");
-            assert_eq!(fish.len(), 53);
+            assert_eq!(fish.len(), 66);
             assert!((0.0..=1.0).contains(&fish[0].preference.intensity));
         }
 

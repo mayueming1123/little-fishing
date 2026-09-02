@@ -18,6 +18,11 @@ import goldenRetrieverFishing from "../../assets/dog-skin-golden-retriever.png";
 import specialWaterMonsterFishing from "../../assets/skin-special-water-monster.png";
 import specialPizzaRabbitFishing from "../../assets/skin-special-pizza-rabbit.png";
 import specialSpaghettiDogFishing from "../../assets/skin-special-spaghetti-dog.png";
+import specialPuddingDogFishing from "../../assets/skin-special-pudding-dog.png";
+import specialPrincessCatFishing from "../../assets/skin-special-princess-cat.png";
+import dittoFishing from "../../assets/skin-ditto.png";
+import cuteDogFishing from "../../assets/skin-cute-dog.png";
+import pinkRabbitFishing from "../../assets/skin-pink-rabbit.png";
 import type { BobberSkinId } from "../../domain/prototype";
 
 export interface BobberSkinOption {
@@ -49,9 +54,21 @@ export const bobberSkins: BobberSkinOption[] = [
   { value: "special_water_monster", label: "小水怪伙伴", image: specialWaterMonsterFishing, floatX: 84.0, floatY: 82.1, inset: 12.5 },
   { value: "special_pizza_rabbit", label: "披萨小兔", image: specialPizzaRabbitFishing, floatX: 85.0, floatY: 82.5, inset: 12.5 },
   { value: "special_spaghetti_dog", label: "意面小狗", image: specialSpaghettiDogFishing, floatX: 85.1, floatY: 82.0, inset: 12.5 },
+  { value: "special_pudding_dog", label: "布丁小狗", image: specialPuddingDogFishing, floatX: 85.0, floatY: 82.0, inset: 12.5 },
+  { value: "special_princess_cat", label: "公主猫", image: specialPrincessCatFishing, floatX: 85.0, floatY: 82.0, inset: 12.5 },
   { value: "tom", label: "TOM 猫", image: tomCatFishing, floatX: 86.2, floatY: 81.2, inset: 12.5 },
+  { value: "ditto", label: "百变怪", image: dittoFishing, floatX: 82.0, floatY: 75.0, inset: 4.0 },
+  { value: "cute_dog", label: "修狗", image: cuteDogFishing, floatX: 84.8, floatY: 81.0, inset: 12.5 },
+  { value: "pink_rabbit", label: "粉兔兔", image: pinkRabbitFishing, floatX: 85.0, floatY: 81.0, inset: 12.5 },
 ];
 
 export function getBobberSkin(value: BobberSkinId): BobberSkinOption {
   return bobberSkins.find((skin) => skin.value === value) ?? bobberSkins[0];
+}
+
+export function getBobberSkinDisplayName(
+  skinId: BobberSkinId,
+  skinNames: Partial<Record<BobberSkinId, string>>,
+): string {
+  return skinNames[skinId]?.trim() || getBobberSkin(skinId).label;
 }

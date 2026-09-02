@@ -12,6 +12,7 @@ vi.mock("../../ipc/client", () => ({
   activateBobberAlert: vi.fn(),
   dismissBobberAlert: vi.fn(),
   getAppSettings: vi.fn().mockResolvedValue({
+    skinNames: { orange: "小橘" },
     notificationsEnabled: true,
     bobberVisible: true,
     bobberAlwaysOnTop: true,

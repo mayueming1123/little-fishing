@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { defaultAppSettings, type AppSettings, type BobberSkinId } from "../../domain/prototype";
-import { bobberSkins } from "../bobber/skins";
+import { bobberSkins, getBobberSkin } from "../bobber/skins";
 import {
   clearBobberSkinPreview,
   getAppSettings,
@@ -95,8 +95,11 @@ export function SettingsPage() {
   }
 
   const dirty = JSON.stringify(settings) !== JSON.stringify(saved);
+  const skinNamesValid = Object.values(settings.skinNames).every((name) => Array.from(name.trim()).length <= 12);
   const selectableSkinIds = new Set<BobberSkinId>(["orange", settings.bobberSkin, ...ownedSkinIds]);
   const availableSkins = bobberSkins.filter((skin) => selectableSkinIds.has(skin.value));
+  const selectedSkin = getBobberSkin(settings.bobberSkin);
+  const selectedSkinName = settings.skinNames[settings.bobberSkin] ?? "";
   return <section className="section-page">
     <div className="section-intro"><div><h2>设置</h2></div><span>{dirty ? "有未保存修改" : "已保存"}</span></div>
     <div className="settings-layout">
@@ -110,6 +113,19 @@ export function SettingsPage() {
         <ToggleSetting checked={settings.bobberAlwaysOnTop} disabled={!settings.bobberVisible} label="浮标保持置顶" description="让浮标停留在普通窗口上方；全屏程序仍可能覆盖它。" onChange={(value) => patch({ bobberAlwaysOnTop: value })} />
       </article>
       <article className="paper-card settings-group settings-appearance"><h3>显示</h3>
+        <label className="companion-name-setting">
+          <span><strong>{selectedSkin.label}的昵称</strong><small>每款皮肤单独保存昵称；留空时使用皮肤原名，最多 12 个字。</small></span>
+          <input
+            type="text"
+            aria-label={`${selectedSkin.label}的昵称`}
+            maxLength={12}
+            placeholder={`默认：${selectedSkin.label}`}
+            value={selectedSkinName}
+            onChange={(event) => patch({
+              skinNames: { ...settings.skinNames, [settings.bobberSkin]: event.target.value },
+            })}
+          />
+        </label>
         <div className="setting-copy"><strong>悬浮伙伴皮肤</strong><small>点击皮肤会立即在桌面浮标上临时预览；只有保存后才会永久生效。</small></div>
         <div className="skin-options" role="group" aria-label="悬浮伙伴皮肤">
           {availableSkins.map((skin) => <button
@@ -122,7 +138,7 @@ export function SettingsPage() {
         </div>
         <ToggleSetting checked={settings.reducedMotion} label="减少动态效果" description="停止浮标呼吸与轻微摆动，更适合长时间放在屏幕一角。" onChange={(value) => patch({ reducedMotion: value })} />
       </article>
-      <aside className="settings-save-card"><strong>保存本次修改</strong><button className="primary-button" disabled={!settingsLoaded || !dirty || saving} onClick={() => void save()}>{saving ? "正在保存…" : "保存设置"}</button>{message && <div className="error-strip" role="status">{message}</div>}</aside>
+      <aside className="settings-save-card"><strong>保存本次修改</strong><button className="primary-button" disabled={!settingsLoaded || !dirty || saving || !skinNamesValid} onClick={() => void save()}>{saving ? "正在保存…" : "保存设置"}</button>{!skinNamesValid && <p>每款皮肤的昵称最多为 12 个字。</p>}{message && <div className="error-strip" role="status">{message}</div>}</aside>
     </div>
   </section>;
 }

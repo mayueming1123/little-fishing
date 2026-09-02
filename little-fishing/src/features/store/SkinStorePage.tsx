@@ -34,7 +34,12 @@ const skinStoreItems: StoreItem[] = [
   { skinId: "special_water_monster", description: "通过某种特殊成就获得。", unlock: "mystery" },
   { skinId: "special_pizza_rabbit", description: "通过某种特殊成就获得。", unlock: "mystery" },
   { skinId: "special_spaghetti_dog", description: "通过某种特殊成就获得。", unlock: "mystery" },
+  { skinId: "special_pudding_dog", description: "通过某种特殊成就获得。", unlock: "mystery" },
+  { skinId: "special_princess_cat", description: "通过某种特殊成就获得。", unlock: "mystery" },
   { skinId: "tom", description: "经典灰蓝伙伴，带着鱼桶陪你守住每一竿。", unlock: "shop", price: 50_000 },
+  { skinId: "ditto", description: "软乎乎的紫色百变伙伴，换个样子继续陪你守竿。", unlock: "shop", price: 100_000 },
+  { skinId: "cute_dog", description: "粉白色的软萌修狗，带着自己的小鱼桶认真守竿。", unlock: "shop", price: 100_000 },
+  { skinId: "pink_rabbit", description: "粉扑扑的兔兔钓手，带着小饮料在岸边耐心等鱼。", unlock: "shop", price: 50_000 },
 ];
 
 function errorMessage(error: unknown): string {
@@ -91,7 +96,7 @@ export function SkinStorePage() {
   return <section className="section-page">
     <div className="section-intro">
       <div><h2>伙伴与 Buff 商店</h2><p>金币可以兑换外观或永久 Buff；Buff 只缩短等待，不改变中鱼概率和鱼种。</p></div>
-      <span>{store ? `已拥有 ${store.ownedSkinIds.length} / 20` : "正在清点"}</span>
+      <span>{store ? `已拥有 ${store.ownedSkinIds.length} / 25` : "正在清点"}</span>
     </div>
 
     <div className="store-balance" aria-label="商店账户">

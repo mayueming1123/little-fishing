@@ -227,11 +227,6 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 }
 .companion-stage.waiting img { animation: companion-breathe 3.8s ease-in-out infinite; }
 .companion-stage.stopped img { opacity: .82; filter: saturate(.82) drop-shadow(0 10px 8px rgba(28,75,73,.16)); }
-.companion-stage > span {
-  position: absolute; z-index: 2; right: 13px; bottom: 12px; padding: 5px 9px; border-radius: 999px;
-  color: #416b67; background: rgba(255,255,255,.82); box-shadow: 0 4px 12px rgba(43,76,72,.1); font-size: 10px;
-}
-
 .water-scene { position: relative; min-height: 190px; border-radius: 18px; overflow: hidden; background: linear-gradient(#e5f2ed 0 45%, #b9dad4 46% 100%); }
 .water-scene::before, .water-scene::after { content: ""; position: absolute; left: -8%; width: 116%; height: 1px; background: rgba(255,255,255,.7); }
 .water-scene::before { top: 56%; box-shadow: 0 24px rgba(255,255,255,.34), 0 51px rgba(37,99,102,.12); }
@@ -667,6 +662,17 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .settings-save-card p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
 .settings-save-card .error-strip { margin: 0; }
 .settings-save-card .primary-button { flex: 0 0 auto; }
+.companion-name-setting {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 220px); gap: 16px; align-items: center;
+  padding: 13px 0; border-bottom: 1px solid var(--line);
+}
+.companion-name-setting span { display: grid; gap: 4px; }
+.companion-name-setting small { color: var(--muted); line-height: 1.5; }
+.companion-name-setting input {
+  width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
+  color: var(--ink); background: rgba(255,255,255,.76); outline: none;
+}
+.companion-name-setting input:focus { border-color: #72a4a0; box-shadow: 0 0 0 3px rgba(76,155,145,.12); }
 
 .bobber-stage { position: relative; min-height: 100vh; display: grid; place-items: center; background: transparent; user-select: none; }
 .bobber-stage.navigation-open { align-content: start; justify-items: center; }

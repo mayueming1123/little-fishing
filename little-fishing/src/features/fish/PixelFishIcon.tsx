@@ -1,6 +1,9 @@
 import spaghettiFish from "../../assets/fish-special-spaghetti.png";
 import pizzaFish from "../../assets/fish-special-pizza.png";
 import waterMonsterFish from "../../assets/fish-special-water-monster.png";
+import spaceSquidFish from "../../assets/fish-special-space-squid.png";
+import puddingFish from "../../assets/fish-special-pudding.png";
+import princessFish from "../../assets/fish-special-princess.png";
 
 type FishShape = "standard" | "deep" | "slender" | "catfish" | "eel" | "flat" | "grouper" | "pomfret";
 type FishMarking = "scales" | "stripe" | "bands" | "spots" | "speckles" | "lateral" | "saddle" | "plain";
@@ -16,7 +19,7 @@ interface FishIconSpec {
   spines?: boolean;
 }
 
-// 顺序与数据库中 1～40、44～53 号现实鱼种严格对应；41～43 使用独立特殊鱼图片。
+// 顺序与数据库中 1～40、44～53、57～66 号现实鱼种严格对应；特殊鱼使用独立图片。
 export const fishIconSpecs: readonly FishIconSpec[] = [
   { shape: "standard", marking: "scales", body: "#ad7b42", dark: "#65452e", accent: "#d5ad62", belly: "#d8bd86", whiskers: true },
   { shape: "deep", marking: "scales", body: "#a9a58c", dark: "#62685d", accent: "#d6c48c", belly: "#d7d4be" },
@@ -68,18 +71,34 @@ export const fishIconSpecs: readonly FishIconSpec[] = [
   { shape: "grouper", marking: "stripe", body: "#778b70", dark: "#344d3e", accent: "#b5c272", belly: "#afbea6", spines: true },
   { shape: "flat", marking: "plain", body: "#b19c79", dark: "#5b5141", accent: "#dbc78f", belly: "#d4c6a9" },
   { shape: "eel", marking: "speckles", body: "#564e48", dark: "#252b2c", accent: "#b9a260", belly: "#81766a" },
+  { shape: "standard", marking: "scales", body: "#9b9c67", dark: "#4f5637", accent: "#c8b45b", belly: "#c9c9a1", whiskers: true },
+  { shape: "slender", marking: "lateral", body: "#829aa4", dark: "#3d5964", accent: "#b9ced0", belly: "#d6dfdc" },
+  { shape: "slender", marking: "stripe", body: "#a6b7bd", dark: "#536b74", accent: "#d8c96e", belly: "#d9e1df" },
+  { shape: "eel", marking: "lateral", body: "#7c8791", dark: "#364650", accent: "#c8b655", belly: "#b7c0c1" },
+  { shape: "standard", marking: "bands", body: "#87937a", dark: "#3e5044", accent: "#b8a867", belly: "#c5cbb8" },
+  { shape: "deep", marking: "spots", body: "#c98169", dark: "#694745", accent: "#e2b65f", belly: "#e2b4a0", spines: true },
+  { shape: "flat", marking: "speckles", body: "#9c947d", dark: "#4c4c43", accent: "#c8b76c", belly: "#cbc6b2", spines: true },
+  { shape: "grouper", marking: "saddle", body: "#95845c", dark: "#4b4434", accent: "#708260", belly: "#c4b88f", spines: true },
+  { shape: "flat", marking: "bands", body: "#8d8a82", dark: "#41444a", accent: "#b9aa75", belly: "#c9c5b9" },
+  { shape: "slender", marking: "lateral", body: "#506f82", dark: "#243c4c", accent: "#c9aa4e", belly: "#94aebb", spines: true },
 ] as const;
 
 const specialFishIcons: Readonly<Record<number, string>> = {
   41: spaghettiFish,
   42: pizzaFish,
   43: waterMonsterFish,
+  54: spaceSquidFish,
+  55: puddingFish,
+  56: princessFish,
 };
 
 export const specialFishDescriptions: Readonly<Record<number, string>> = {
   41: "鱼身缠满番茄酱色的面条纹路，三颗圆滚滚的肉丸斑点随着摆尾轻轻晃动。",
   42: "金黄鱼身像刚烤好的薄饼，奶酪色鳞片间整齐散着几枚红色圆斑。",
   43: "它有三道软乎乎的背峰和一双水蓝色小鳍，离水后还在好奇地眨眼。",
+  54: "透明头罩里闪着青蓝指示灯，短触腕上的电路纹会随着呼吸一格格亮起。",
+  55: "焦糖顶层轻轻晃动，布丁本体两侧长着小鱼鳍，尾巴摆起来像一把软勺子。",
+  56: "珍珠粉色的长鳍像层层裙摆，头顶小皇冠歪了一点，却完全不影响它的从容。",
 };
 
 const shapePaths: Record<FishShape, { outer: string; inner: string; eye: [number, number] }> = {
@@ -109,7 +128,11 @@ export function PixelFishIcon({ fishId, label }: { fishId: number; label: string
   if (specialIcon) {
     return <img className="pixel-fish special-fish-icon" data-fish-id={fishId} src={specialIcon} alt={`${label}像素图标`} draggable={false} />;
   }
-  const mappedIndex = fishId >= 44 && fishId <= 53 ? fishId - 4 : fishId - 1;
+  const mappedIndex = fishId >= 57
+    ? fishId - 7
+    : fishId >= 44
+      ? fishId - 4
+      : fishId - 1;
   const spec = fishIconSpecs[(mappedIndex + fishIconSpecs.length) % fishIconSpecs.length];
   const shape = shapePaths[spec.shape];
   return <svg className="pixel-fish" data-fish-id={fishId} viewBox="0 0 64 40" role="img" aria-label={`${label}像素图标`} shapeRendering="crispEdges">

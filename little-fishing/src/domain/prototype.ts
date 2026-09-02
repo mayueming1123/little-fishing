@@ -194,7 +194,7 @@ export type MainSection = "fishing" | "basket" | "treasure" | "log" | "fish" | "
 export type BobberAlertKind = "event" | "catch" | "special_catch" | "treasure";
 
 export type AppTheme = "light";
-export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal" | "samoyed" | "golden_retriever" | "treasure_pearl" | "treasure_crystal_shoe" | "treasure_seal" | "treasure_wood_sword" | "treasure_martial_manual" | "treasure_perfume" | "special_water_monster" | "special_pizza_rabbit" | "special_spaghetti_dog" | "tom";
+export type BobberSkinId = "orange" | "gray" | "calico" | "siamese" | "silver_tabby" | "tuxedo" | "ragdoll" | "bengal" | "samoyed" | "golden_retriever" | "treasure_pearl" | "treasure_crystal_shoe" | "treasure_seal" | "treasure_wood_sword" | "treasure_martial_manual" | "treasure_perfume" | "special_water_monster" | "special_pizza_rabbit" | "special_spaghetti_dog" | "special_pudding_dog" | "special_princess_cat" | "tom" | "ditto" | "cute_dog" | "pink_rabbit";
 
 export interface SkinStoreState {
   money: number;
@@ -204,6 +204,7 @@ export interface SkinStoreState {
 }
 
 export interface AppSettings {
+  skinNames: Partial<Record<BobberSkinId, string>>;
   notificationsEnabled: boolean;
   bobberVisible: boolean;
   bobberAlwaysOnTop: boolean;
@@ -214,6 +215,7 @@ export interface AppSettings {
 }
 
 export const defaultAppSettings: AppSettings = {
+  skinNames: { orange: "小橘" },
   notificationsEnabled: true,
   bobberVisible: true,
   bobberAlwaysOnTop: true,
