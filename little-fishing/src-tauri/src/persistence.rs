@@ -128,6 +128,30 @@ pub struct PersistedRoundState {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct PersistedPondSlot {
+    pub slot_index: u8,
+    pub unlocked: bool,
+    pub skin_id: Option<String>,
+    pub phase: String,
+    pub round_started_at: Option<String>,
+    pub scheduled_end_time: Option<String>,
+    pub planned_duration_seconds: u64,
+    pub round_number: u64,
+    pub selected_recipe_id: u64,
+    pub last_result: Option<String>,
+    pub state_revision: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PondActivity {
+    pub slot_index: u8,
+    pub skin_id: String,
+    pub summary: String,
+    pub settled_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct StoredAppSettings {
     pub companion_name: String,
     pub skin_names_json: String,
@@ -388,6 +412,34 @@ impl SqliteStore {
                  reduced_motion INTEGER NOT NULL DEFAULT 0,
                  bobber_skin TEXT NOT NULL DEFAULT 'orange',
                  updated_at TEXT NOT NULL
+             );
+
+             CREATE TABLE IF NOT EXISTS pond_slots (
+                 slot_index INTEGER PRIMARY KEY CHECK (slot_index BETWEEN 1 AND 6),
+                 unlocked INTEGER NOT NULL DEFAULT 0,
+                 skin_id TEXT,
+                 phase TEXT NOT NULL DEFAULT 'stopped',
+                 round_started_at TEXT,
+                 scheduled_end_time TEXT,
+                 planned_duration_seconds INTEGER NOT NULL DEFAULT 0,
+                 round_number INTEGER NOT NULL DEFAULT 0,
+                 selected_recipe_id INTEGER NOT NULL DEFAULT 1,
+                 last_result TEXT,
+                 state_revision INTEGER NOT NULL DEFAULT 0,
+                 updated_at TEXT NOT NULL
+             );
+
+             CREATE TABLE IF NOT EXISTS pond_activity (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 slot_index INTEGER NOT NULL,
+                 skin_id TEXT NOT NULL,
+                 summary TEXT NOT NULL,
+                 settled_at TEXT NOT NULL
+             );
+
+             CREATE TABLE IF NOT EXISTS round_sequence (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 last_round_number INTEGER NOT NULL DEFAULT 0
              );",
         )?;
         Self::ensure_column(
@@ -430,6 +482,23 @@ impl SqliteStore {
             "UPDATE player_state
              SET poop_kg = MAX(body_weight_kg - 60, 0), poop_migrated = 1
              WHERE poop_migrated = 0",
+            [],
+        )?;
+        for slot_index in 1..=6 {
+            connection.execute(
+                "INSERT OR IGNORE INTO pond_slots
+                     (slot_index, unlocked, updated_at)
+                 VALUES (?1, ?2, '1970-01-01T00:00:00Z')",
+                params![slot_index, i64::from(slot_index == 1)],
+            )?;
+        }
+        connection.execute(
+            "INSERT OR IGNORE INTO round_sequence (id, last_round_number)
+             SELECT 1, MAX(
+                 COALESCE((SELECT MAX(round_number) FROM round_results), 0),
+                 COALESCE((SELECT round_number FROM game_state WHERE id = 1), 0),
+                 COALESCE((SELECT MAX(round_number) FROM pond_slots), 0)
+             )",
             [],
         )?;
         for (category, sequence, description) in event_description_seeds() {
@@ -723,6 +792,154 @@ impl SqliteStore {
                 })
             },
         )
+    }
+
+    pub fn allocate_round_number(&self) -> rusqlite::Result<u64> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.execute(
+            "UPDATE round_sequence SET last_round_number = last_round_number + 1 WHERE id = 1",
+            [],
+        )?;
+        connection
+            .query_row(
+                "SELECT last_round_number FROM round_sequence WHERE id = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|value| value.max(1) as u64)
+    }
+
+    pub fn load_pond_slots(&self) -> rusqlite::Result<Vec<PersistedPondSlot>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT slot_index, unlocked, skin_id, phase, round_started_at,
+                    scheduled_end_time, planned_duration_seconds, round_number,
+                    selected_recipe_id, last_result, state_revision
+             FROM pond_slots ORDER BY slot_index",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok(PersistedPondSlot {
+                    slot_index: row.get::<_, i64>(0)?.clamp(1, 6) as u8,
+                    unlocked: row.get(1)?,
+                    skin_id: row.get(2)?,
+                    phase: row.get(3)?,
+                    round_started_at: row.get(4)?,
+                    scheduled_end_time: row.get(5)?,
+                    planned_duration_seconds: row.get::<_, i64>(6)?.max(0) as u64,
+                    round_number: row.get::<_, i64>(7)?.max(0) as u64,
+                    selected_recipe_id: row.get::<_, i64>(8)?.max(1) as u64,
+                    last_result: row.get(9)?,
+                    state_revision: row.get::<_, i64>(10)?.max(0) as u64,
+                })
+            })?
+            .collect()
+    }
+
+    pub fn save_pond_slot(
+        &self,
+        slot: &PersistedPondSlot,
+        updated_at: &str,
+    ) -> rusqlite::Result<()> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.execute(
+            "UPDATE pond_slots SET unlocked = ?2, skin_id = ?3, phase = ?4,
+                    round_started_at = ?5, scheduled_end_time = ?6,
+                    planned_duration_seconds = ?7, round_number = ?8,
+                    selected_recipe_id = ?9, last_result = ?10,
+                    state_revision = ?11, updated_at = ?12
+             WHERE slot_index = ?1",
+            params![
+                slot.slot_index,
+                slot.unlocked,
+                slot.skin_id,
+                slot.phase,
+                slot.round_started_at,
+                slot.scheduled_end_time,
+                slot.planned_duration_seconds.min(i64::MAX as u64) as i64,
+                slot.round_number.min(i64::MAX as u64) as i64,
+                slot.selected_recipe_id.min(i64::MAX as u64) as i64,
+                slot.last_result,
+                slot.state_revision.min(i64::MAX as u64) as i64,
+                updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn purchase_pond_slot(
+        &self,
+        slot_index: u8,
+        price: f64,
+        updated_at: &str,
+    ) -> rusqlite::Result<()> {
+        let mut connection = self.connection.lock().expect("sqlite connection poisoned");
+        let transaction = connection.transaction()?;
+        let unlocked: bool = transaction.query_row(
+            "SELECT unlocked FROM pond_slots WHERE slot_index = ?1",
+            [slot_index],
+            |row| row.get(0),
+        )?;
+        if unlocked {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        if slot_index > 2 {
+            let previous_unlocked: bool = transaction.query_row(
+                "SELECT unlocked FROM pond_slots WHERE slot_index = ?1",
+                [slot_index - 1],
+                |row| row.get(0),
+            )?;
+            if !previous_unlocked {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+        }
+        let charged = transaction.execute(
+            "UPDATE player_state SET money = money - ?1, updated_at = ?2
+             WHERE id = 1 AND money >= ?1",
+            params![price, updated_at],
+        )?;
+        if charged == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        transaction.execute(
+            "UPDATE pond_slots SET unlocked = 1, updated_at = ?2 WHERE slot_index = ?1",
+            params![slot_index, updated_at],
+        )?;
+        transaction.commit()
+    }
+
+    pub fn save_pond_activity(
+        &self,
+        slot_index: u8,
+        skin_id: &str,
+        summary: &str,
+        settled_at: &str,
+    ) -> rusqlite::Result<()> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        connection.execute(
+            "INSERT INTO pond_activity (slot_index, skin_id, summary, settled_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![slot_index, skin_id, summary, settled_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_pond_activity(&self, limit: usize) -> rusqlite::Result<Vec<PondActivity>> {
+        let connection = self.connection.lock().expect("sqlite connection poisoned");
+        let mut statement = connection.prepare(
+            "SELECT slot_index, skin_id, summary, settled_at
+             FROM pond_activity ORDER BY id DESC LIMIT ?1",
+        )?;
+        statement
+            .query_map([limit.min(i64::MAX as usize) as i64], |row| {
+                Ok(PondActivity {
+                    slot_index: row.get::<_, i64>(0)?.clamp(1, 6) as u8,
+                    skin_id: row.get(1)?,
+                    summary: row.get(2)?,
+                    settled_at: row.get(3)?,
+                })
+            })?
+            .collect()
     }
 
     pub fn save_app_settings(
@@ -2576,6 +2793,50 @@ mod tests {
         assert_eq!(player.poop_kg, 1_000.0);
         assert_eq!(player.money, 30_000.0);
         assert!(store.is_skin_owned("bengal").expect("check reward skin"));
+    }
+
+    #[test]
+    fn pond_slots_unlock_in_order_and_charge_the_expected_balance() {
+        let store = SqliteStore::open(Path::new(":memory:")).expect("open in-memory database");
+        let initial_slots = store.load_pond_slots().expect("load default pond slots");
+        assert_eq!(initial_slots.len(), 6);
+        assert!(initial_slots[0].unlocked);
+        assert!(initial_slots[1..].iter().all(|slot| !slot.unlocked));
+
+        store
+            .connection
+            .lock()
+            .expect("sqlite connection")
+            .execute("UPDATE player_state SET money = 500000 WHERE id = 1", [])
+            .expect("seed pond balance");
+        assert!(store.purchase_pond_slot(3, 80_000.0, "2026-09-02T08:00:00Z").is_err());
+
+        for (slot_index, price) in [(2, 50_000.0), (3, 80_000.0), (4, 110_000.0)] {
+            store
+                .purchase_pond_slot(slot_index, price, "2026-09-02T08:00:00Z")
+                .expect("unlock next pond slot");
+        }
+        let slots = store.load_pond_slots().expect("reload unlocked pond slots");
+        assert!(slots[..4].iter().all(|slot| slot.unlocked));
+        assert!(slots[4..].iter().all(|slot| !slot.unlocked));
+        assert_eq!(store.load_player_summary().expect("load pond balance").money, 260_000.0);
+
+        store
+            .save_pond_activity(2, "gray", "钓到一条鲫鱼。", "2026-09-02T08:30:00Z")
+            .expect("save pond activity");
+        let activity = store.load_pond_activity(12).expect("load pond activity");
+        assert_eq!(activity.len(), 1);
+        assert_eq!(activity[0].slot_index, 2);
+        assert_eq!(activity[0].skin_id, "gray");
+        assert_eq!(activity[0].summary, "钓到一条鲫鱼。");
+    }
+
+    #[test]
+    fn pond_round_numbers_share_one_monotonic_sequence() {
+        let store = SqliteStore::open(Path::new(":memory:")).expect("open in-memory database");
+        assert_eq!(store.allocate_round_number().expect("first round number"), 1);
+        assert_eq!(store.allocate_round_number().expect("second round number"), 2);
+        assert_eq!(store.allocate_round_number().expect("third round number"), 3);
     }
 
     #[test]

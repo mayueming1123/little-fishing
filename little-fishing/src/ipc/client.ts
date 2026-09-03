@@ -21,6 +21,7 @@ import {
   type SkinStoreState,
   type BobberSkinId,
   type BobberAlertKind,
+  type PondState,
 } from "../domain/prototype";
 
 declare global {
@@ -56,6 +57,23 @@ let mockAdminSnapshot: AdminSnapshot = {
 const mockListeners = new Set<(state: PrototypeState) => void>();
 const mockSettingsListeners = new Set<(settings: AppSettings) => void>();
 const mockSkinPreviewListeners = new Set<(skinId: BobberSkinId | null) => void>();
+const mockPondListeners = new Set<(state: PondState) => void>();
+let mockPondState: PondState = {
+  money: 160_000,
+  isFishing: false,
+  activities: [],
+  slots: Array.from({ length: 6 }, (_, index) => ({
+    slotIndex: index + 1,
+    unlocked: index === 0,
+    fixedDesktopSlot: index === 0,
+    unlockPrice: index === 0 ? null : 50_000 + (index - 1) * 30_000,
+    skinId: index === 0 ? "orange" : null,
+    phase: "stopped",
+    roundStartedAt: null,
+    scheduledEndTime: null,
+    lastResult: null,
+  })),
+};
 
 export function isTauriRuntime(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -67,6 +85,41 @@ function emitMock() {
 
 export async function getPrototypeState(): Promise<PrototypeState> {
   return isTauriRuntime() ? invoke<PrototypeState>("get_prototype_state") : mockState;
+}
+
+export async function getPondState(): Promise<PondState> {
+  return isTauriRuntime() ? invoke<PondState>("get_pond_state") : mockPondState;
+}
+
+export async function purchasePondSlot(slotIndex: number): Promise<PondState> {
+  if (isTauriRuntime()) return invoke<PondState>("purchase_pond_slot", { slotIndex });
+  const slot = mockPondState.slots.find((item) => item.slotIndex === slotIndex);
+  if (!slot?.unlockPrice || mockPondState.money < slot.unlockPrice) throw new Error("金币不足");
+  mockPondState = {
+    ...mockPondState,
+    money: mockPondState.money - slot.unlockPrice,
+    slots: mockPondState.slots.map((item) => item.slotIndex === slotIndex ? { ...item, unlocked: true } : item),
+  };
+  for (const listener of mockPondListeners) listener(mockPondState);
+  return mockPondState;
+}
+
+export async function assignPondSkin(slotIndex: number, skinId: BobberSkinId | null): Promise<PondState> {
+  if (isTauriRuntime()) return invoke<PondState>("assign_pond_skin", { slotIndex, skinId });
+  mockPondState = {
+    ...mockPondState,
+    slots: mockPondState.slots.map((item) => item.slotIndex === slotIndex ? { ...item, skinId } : item),
+  };
+  for (const listener of mockPondListeners) listener(mockPondState);
+  return mockPondState;
+}
+
+export async function subscribePondState(listener: (state: PondState) => void): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) {
+    mockPondListeners.add(listener);
+    return () => mockPondListeners.delete(listener);
+  }
+  return listen<PondState>("pond-state-changed", (event) => listener(event.payload));
 }
 
 export async function startFishing(): Promise<PrototypeState> {

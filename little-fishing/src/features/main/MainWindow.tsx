@@ -4,6 +4,7 @@ import { FishBasketPage } from "../basket/FishBasketPage";
 import { getBobberSkin } from "../bobber/skins";
 import { FishRecordsPage } from "../fish/FishRecordsPage";
 import { FishingLogPage } from "../log/FishingLogPage";
+import { PondPage } from "../pond/PondPage";
 import { SettingsPage } from "../settings/SettingsPage";
 import { SkinStorePage } from "../store/SkinStorePage";
 import { TreasureRoomPage } from "../treasure/TreasureRoomPage";
@@ -32,6 +33,7 @@ const eventCategoryLabels = {
 
 const navigation: Array<{ id: MainSection; label: string }> = [
   { id: "fishing", label: "钓鱼" },
+  { id: "pond", label: "池塘" },
   { id: "basket", label: "鱼篓" },
   { id: "treasure", label: "藏宝室" },
   { id: "log", label: "日志" },
@@ -43,6 +45,7 @@ const navigation: Array<{ id: MainSection; label: string }> = [
 
 const sectionCopy: Record<MainSection, { title: string; subtitle: string }> = {
   fishing: { title: "今天也慢慢等一竿", subtitle: "不催促，不保底，水下什么时候有结果没人知道。" },
+  pond: { title: "叫上伙伴一起守着池塘", subtitle: "共用一份鱼饵，各自慢慢等待自己的那一竿。" },
   basket: { title: "钓上来的鱼先放在这里", subtitle: "鱼获不会催你处理，想吃掉或卖掉时再来看看。" },
   treasure: { title: "把偶遇的奇妙东西摆起来", subtitle: "偶遇过的奇妙东西，会安静地留在展示架上。" },
   log: { title: "每一竿都留下一点动静", subtitle: "回头看看等待、空军，以及已经发生过的每一竿。" },
@@ -124,6 +127,7 @@ export function MainWindow() {
 
   const mainContent = section === "settings" ? <SettingsPage />
     : section === "store" ? <SkinStorePage />
+      : section === "pond" ? <PondPage />
       : section === "treasure" ? <TreasureRoomPage revision={state?.stateRevision ?? 0} />
         : section === "basket" ? <FishBasketPage revision={state?.stateRevision ?? 0} />
           : section === "log" ? <FishingLogPage revision={state?.stateRevision ?? 0} />

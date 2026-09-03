@@ -190,7 +190,7 @@ export interface FishingLogEntry {
   gainedMoney: number | null;
 }
 
-export type MainSection = "fishing" | "basket" | "treasure" | "log" | "fish" | "bait" | "store" | "settings";
+export type MainSection = "fishing" | "pond" | "basket" | "treasure" | "log" | "fish" | "bait" | "store" | "settings";
 export type BobberAlertKind = "event" | "catch" | "special_catch" | "treasure";
 
 export type AppTheme = "light";
@@ -201,6 +201,32 @@ export interface SkinStoreState {
   poopKg: number;
   ownedSkinIds: BobberSkinId[];
   ownedBuffIds: string[];
+}
+
+export interface PondSlotState {
+  slotIndex: number;
+  unlocked: boolean;
+  fixedDesktopSlot: boolean;
+  unlockPrice: number | null;
+  skinId: BobberSkinId | null;
+  phase: FishingPhase;
+  roundStartedAt: string | null;
+  scheduledEndTime: string | null;
+  lastResult: string | null;
+}
+
+export interface PondActivity {
+  slotIndex: number;
+  skinId: BobberSkinId;
+  summary: string;
+  settledAt: string;
+}
+
+export interface PondState {
+  slots: PondSlotState[];
+  activities: PondActivity[];
+  money: number;
+  isFishing: boolean;
 }
 
 export interface AppSettings {

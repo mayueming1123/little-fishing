@@ -228,6 +228,54 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 .companion-stage.waiting img { animation: companion-breathe 3.8s ease-in-out infinite; }
 .companion-stage.stopped img { opacity: .82; filter: saturate(.82) drop-shadow(0 10px 8px rgba(28,75,73,.16)); }
 .water-scene { position: relative; min-height: 190px; border-radius: 18px; overflow: hidden; background: linear-gradient(#e5f2ed 0 45%, #b9dad4 46% 100%); }
+
+.pond-intro p { margin: 4px 0 0; color: var(--muted); }
+.pond-summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pond-summary span, .pond-summary strong { padding: 7px 11px; border-radius: 999px; background: rgba(255,255,255,.72); border: 1px solid rgba(72,126,116,.16); }
+.pond-layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 14px; align-items: start; }
+.pond-board { position: relative; width: 100%; max-width: 760px; aspect-ratio: 1; margin: 0 auto; border-radius: 28px; overflow: hidden; background: #edf7f3; box-shadow: inset 0 0 0 1px rgba(74,120,111,.12), 0 14px 32px rgba(47,83,76,.12); }
+.pond-scene { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; user-select: none; }
+.pond-seat { position: absolute; width: 17%; min-width: 88px; transform: translate(-50%, -50%); text-align: center; }
+.pond-seat-1 { left: 19%; top: 23%; }
+.pond-seat-2 { left: 59%; top: 18%; }
+.pond-seat-3 { left: 83%; top: 32%; }
+.pond-seat-4 { left: 17%; top: 55%; }
+.pond-seat-5 { left: 23%; top: 76%; }
+.pond-seat-6 { left: 79%; top: 69%; }
+.pond-seat button { font: inherit; color: inherit; cursor: pointer; }
+.pond-seat.locked > button, .pond-empty-seat { width: 100%; min-height: 74px; display: grid; place-items: center; gap: 1px; padding: 7px; border: 1px dashed rgba(89,103,79,.36); border-radius: 17px; background: rgba(255,250,218,.86); box-shadow: 0 5px 13px rgba(53,79,62,.14); }
+.pond-seat.locked > button:hover, .pond-empty-seat:hover { transform: translateY(-2px); background: rgba(255,253,231,.96); }
+.pond-seat.locked small { color: #93652f; font-weight: 700; }
+.pond-lock { font-size: 18px; }
+.pond-character { width: 100%; display: grid; justify-items: center; border: 0; background: transparent; filter: drop-shadow(0 6px 4px rgba(41,73,65,.18)); }
+.pond-character img { width: 74px; height: 74px; object-fit: cover; border-radius: 50%; background: transparent; }
+.pond-character strong, .pond-character small { max-width: 125px; padding: 2px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 999px; background: rgba(255,255,255,.86); }
+.pond-character strong { margin-top: -5px; font-size: 11px; }
+.pond-character small { margin-top: 2px; color: #39766e; font-size: 9px; font-weight: 750; }
+.pond-seat-result { display: block; max-width: 132px; margin-top: 2px; padding: 2px 6px; overflow: hidden; border-radius: 8px; color: #6c6254; background: rgba(255,250,235,.88); font-size: 8px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.pond-character:not(.fixed):hover img { transform: translateY(-3px) scale(1.06); }
+.pond-empty-seat b { font-size: 22px; line-height: 1; color: #4f968c; }
+.pond-empty-seat span { font-size: 10px; font-weight: 700; }
+.pond-side-panel { max-height: 730px; overflow: auto; }
+.pond-side-panel > p { margin: 5px 0 13px; color: var(--muted); font-size: 11px; }
+.pond-activity-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.pond-activity-list li { display: grid; grid-template-columns: 42px 1fr; gap: 8px; align-items: center; padding: 7px; border-radius: 13px; background: rgba(246,241,215,.64); }
+.pond-activity-list img { width: 42px; height: 42px; object-fit: cover; border-radius: 50%; }
+.pond-activity-list div { min-width: 0; display: grid; gap: 2px; }
+.pond-activity-list strong { font-size: 10px; color: #39766e; }
+.pond-activity-list span { font-size: 10px; line-height: 1.45; }
+.pond-no-activity { padding: 28px 10px; text-align: center; color: var(--muted); }
+.pond-picker-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(34,53,49,.22); backdrop-filter: blur(3px); }
+.pond-picker { width: min(620px, 92vw); max-height: 78vh; overflow: auto; }
+.pond-picker header { display: flex; justify-content: space-between; gap: 12px; }
+.pond-picker header p { margin: 4px 0 0; color: var(--muted); }
+.pond-picker header > button { width: 30px; height: 30px; border: 0; border-radius: 50%; background: #f3ead2; cursor: pointer; font-size: 20px; }
+.pond-character-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 9px; margin: 14px 0; }
+.pond-character-grid button { display: grid; justify-items: center; gap: 4px; padding: 7px; border: 1px solid rgba(73,127,117,.14); border-radius: 15px; background: rgba(255,255,255,.72); cursor: pointer; }
+.pond-character-grid button:hover { transform: translateY(-2px); border-color: rgba(83,151,139,.5); }
+.pond-character-grid img { width: 72px; height: 72px; object-fit: cover; border-radius: 50%; }
+.pond-character-grid span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 700; }
+@media (max-width: 980px) { .pond-layout { grid-template-columns: 1fr; } .pond-side-panel { max-height: none; } }
 .water-scene::before, .water-scene::after { content: ""; position: absolute; left: -8%; width: 116%; height: 1px; background: rgba(255,255,255,.7); }
 .water-scene::before { top: 56%; box-shadow: 0 24px rgba(255,255,255,.34), 0 51px rgba(37,99,102,.12); }
 .water-scene::after { top: 64%; transform: rotate(-1deg); }
@@ -1194,11 +1242,11 @@ h1 { margin: 0; font-size: clamp(26px, 3vw, 36px); color: #1f4043; font-weight: 
 }
 .nav-item.active .dock-icon { color: #347873; }
 
-/* 八个主入口始终按可用宽度均分，macOS 不再出现横向滚动条。 */
+/* 九个主入口始终按可用宽度均分，macOS 不再出现横向滚动条。 */
 .dock-nav {
   width: min(424px, calc(100vw - 16px));
   max-width: none;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(9, minmax(0, 1fr));
   display: grid;
   align-items: end;
   gap: 2px;

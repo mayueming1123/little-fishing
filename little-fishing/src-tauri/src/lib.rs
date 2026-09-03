@@ -9,8 +9,8 @@ use fishing_rules::{
     resolve_round,
 };
 use persistence::{
-    AdminFishRecord, DailyFishHint, FishingLogEntry, PersistedRoundState, PlayerSummary,
-    SqliteStore, StoredAppSettings,
+    AdminFishRecord, DailyFishHint, FishingLogEntry, PersistedPondSlot, PersistedRoundState,
+    PlayerSummary, PondActivity, SqliteStore, StoredAppSettings,
 };
 use rand::Rng;
 use round_engine::{EventCatalog, WaitingEvent, generate_round_plan};
@@ -39,6 +39,7 @@ const SETTINGS_EVENT: &str = "app-settings-changed";
 const BOBBER_ALERT_EVENT: &str = "bobber-alert";
 const MAIN_NAVIGATE_EVENT: &str = "main-navigate";
 const SKIN_PREVIEW_EVENT: &str = "bobber-skin-preview";
+const POND_EVENT: &str = "pond-state-changed";
 const OWNER_ADMIN_KEY_HASH: u64 = 0xfb80_ee4d_7bb6_6105;
 const ACHIEVEMENT_SKIN_ID: &str = "bengal";
 const ACHIEVEMENT_POOP_KG: f64 = 1_000.0;
@@ -225,6 +226,7 @@ impl PrototypeRoundState {
         now: DateTime<Utc>,
         catalog: &EventCatalog,
         duration_multiplier: f64,
+        next_round_number: u64,
     ) {
         if self.phase == FishingPhase::Stopped {
             self.is_fishing = false;
@@ -240,7 +242,7 @@ impl PrototypeRoundState {
         self.last_result =
             Some("重新回来时，上一竿刚好有了结果；离线期间只结算这一轮。".to_owned());
         if self.is_fishing && !self.stop_after_settlement {
-            self.schedule_round(now, catalog, duration_multiplier, false);
+            self.schedule_round(now, catalog, duration_multiplier, false, next_round_number);
         } else {
             self.phase = FishingPhase::Stopped;
             self.is_fishing = false;
@@ -275,14 +277,20 @@ impl PrototypeRoundState {
         }
     }
 
-    fn start(&mut self, now: DateTime<Utc>, catalog: &EventCatalog, duration_multiplier: f64) {
+    fn start(
+        &mut self,
+        now: DateTime<Utc>,
+        catalog: &EventCatalog,
+        duration_multiplier: f64,
+        round_number: u64,
+    ) {
         if self.phase != FishingPhase::Stopped {
             return;
         }
         self.phase = FishingPhase::Waiting;
         self.is_fishing = true;
         self.stop_after_settlement = false;
-        self.schedule_round(now, catalog, duration_multiplier, false);
+        self.schedule_round(now, catalog, duration_multiplier, false, round_number);
         self.state_revision += 1;
     }
 
@@ -292,6 +300,7 @@ impl PrototypeRoundState {
         catalog: &EventCatalog,
         duration_multiplier: f64,
         allow_space_tech_instant_hook: bool,
+        round_number: u64,
     ) {
         let mut rng = rand::rng();
         let mut plan = generate_round_plan(now, &mut rng, catalog, duration_multiplier);
@@ -308,7 +317,7 @@ impl PrototypeRoundState {
         self.phase = FishingPhase::Waiting;
         self.is_fishing = true;
         self.stop_after_settlement = false;
-        self.round_number += 1;
+        self.round_number = round_number;
         self.round_started_at = Some(now);
         self.scheduled_end_time = Some(now + ChronoDuration::seconds(plan.duration_seconds));
         self.planned_duration_seconds = plan.duration_seconds as u64;
@@ -474,6 +483,9 @@ impl AppSettings {
 
 #[derive(Default)]
 struct PrototypeAppState(Mutex<PrototypeRoundState>);
+
+#[derive(Default)]
+struct PondState(Mutex<Vec<SecondaryPondSlot>>);
 
 struct PersistenceState {
     store: SqliteStore,
@@ -681,6 +693,10 @@ fn save_state(app: &AppHandle, state: &PrototypeRoundState) {
     }
 }
 
+fn should_persist_round_result(pond_slot_index: u8, outcome: &RoundOutcome) -> bool {
+    pond_slot_index == 1 || !matches!(outcome, RoundOutcome::Missed { .. })
+}
+
 fn resolve_with_store(
     store: &SqliteStore,
     outcome_text_catalog: &OutcomeTextCatalog,
@@ -689,6 +705,8 @@ fn resolve_with_store(
     round_started_at: Option<DateTime<Utc>>,
     planned_duration_seconds: u64,
     waiting_events: &[WaitingEvent],
+    pond_slot_index: u8,
+    pond_skin_id: &str,
 ) -> Result<ResolvedRound, String> {
     let local_date = Local::now().date_naive().to_string();
     let mut rng = rand::rng();
@@ -711,18 +729,22 @@ fn resolve_with_store(
     let settled_at = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
     let round_started_at =
         round_started_at.map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true));
-    store
-        .save_round_outcome(
-            round_number,
-            round_started_at.as_deref(),
-            &settled_at,
-            planned_duration_seconds,
-            waiting_events,
-            &local_date,
-            &bait.name,
-            &outcome,
-        )
-        .map_err(|error| error.to_string())?;
+    // 副席空军只留在各自席位的“最近结果”里，不写入公共钓鱼日志。
+    // 主桌宠仍保留原本的完整记录行为。
+    if should_persist_round_result(pond_slot_index, &outcome) {
+        store
+            .save_round_outcome(
+                round_number,
+                round_started_at.as_deref(),
+                &settled_at,
+                planned_duration_seconds,
+                waiting_events,
+                &local_date,
+                &bait.name,
+                &outcome,
+            )
+            .map_err(|error| error.to_string())?;
+    }
     let alert_kind = match &outcome {
         RoundOutcome::Caught { rarity, .. } if *rarity == FishRarity::Special => {
             BobberAlertKind::SpecialCatch
@@ -731,6 +753,11 @@ fn resolve_with_store(
         RoundOutcome::TreasureFound { .. } => BobberAlertKind::Treasure,
         RoundOutcome::Missed { .. } => BobberAlertKind::Event,
     };
+    if alert_kind != BobberAlertKind::Event {
+        store
+            .save_pond_activity(pond_slot_index, pond_skin_id, &outcome.summary(), &settled_at)
+            .map_err(|error| error.to_string())?;
+    }
     Ok(ResolvedRound {
         summary: outcome.summary(),
         alert_kind,
@@ -744,6 +771,8 @@ fn resolve_current_round(
     round_started_at: Option<DateTime<Utc>>,
     planned_duration_seconds: u64,
     waiting_events: &[WaitingEvent],
+    pond_slot_index: u8,
+    pond_skin_id: &str,
 ) -> Result<ResolvedRound, String> {
     let persistence = app.state::<PersistenceState>();
     resolve_with_store(
@@ -754,6 +783,8 @@ fn resolve_current_round(
         round_started_at,
         planned_duration_seconds,
         waiting_events,
+        pond_slot_index,
+        pond_skin_id,
     )
 }
 
@@ -888,24 +919,11 @@ fn place_bobber_initially(app: &AppHandle) {
 }
 
 fn toggle_fishing(app: &AppHandle) -> PrototypeSnapshot {
-    let value = {
-        let persistence = app.state::<PersistenceState>();
-        let state = app.state::<PrototypeAppState>();
-        let mut state = state.0.lock().expect("prototype state poisoned");
-        if state.is_fishing {
-            state.stop();
-        } else {
-            state.start(
-                Utc::now(),
-                &persistence.event_catalog,
-                round_duration_multiplier(&persistence.store),
-            );
-        }
-        save_state(app, &state);
-        state.snapshot()
-    };
-    broadcast(app, value.clone());
-    value
+    if snapshot(app).is_fishing {
+        stop_fishing(app.clone())
+    } else {
+        start_fishing(app.clone())
+    }
 }
 
 fn exit_app(app: &AppHandle) {
@@ -990,6 +1008,200 @@ fn position_panel_near_bobber(app: &AppHandle) {
         monitor_bottom.saturating_sub(panel_height),
     );
     let _ = panel.set_position(tauri::PhysicalPosition::new(panel_x, panel_y));
+}
+
+fn pond_slot_price(slot_index: u8) -> Option<u64> {
+    (2..=6)
+        .contains(&slot_index)
+        .then(|| 50_000 + u64::from(slot_index - 2) * 30_000)
+}
+
+fn save_secondary_pond_slot(app: &AppHandle, slot: &SecondaryPondSlot) {
+    if let Err(error) = app.state::<PersistenceState>().store.save_pond_slot(
+        &slot.persisted(),
+        &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+    ) {
+        eprintln!("failed to persist pond slot {}: {error}", slot.slot_index);
+    }
+}
+
+fn pond_snapshot(app: &AppHandle) -> Result<PondSnapshot, String> {
+    let main_state = app.state::<PrototypeAppState>();
+    let main = main_state
+        .0
+        .lock()
+        .expect("prototype state poisoned");
+    let settings_state = app.state::<SettingsState>();
+    let settings = settings_state
+        .0
+        .lock()
+        .expect("settings state poisoned");
+    let pond_state = app.state::<PondState>();
+    let secondary = pond_state
+        .0
+        .lock()
+        .expect("pond state poisoned");
+    let mut slots = vec![PondSlotSnapshot {
+        slot_index: 1,
+        unlocked: true,
+        fixed_desktop_slot: true,
+        unlock_price: None,
+        skin_id: Some(settings.bobber_skin.clone()),
+        phase: main.phase.code(),
+        round_started_at: main
+            .round_started_at
+            .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true)),
+        scheduled_end_time: main
+            .scheduled_end_time
+            .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true)),
+        last_result: main.last_result.clone(),
+    }];
+    slots.extend(secondary.iter().map(|slot| PondSlotSnapshot {
+        slot_index: slot.slot_index,
+        unlocked: slot.unlocked,
+        fixed_desktop_slot: false,
+        unlock_price: pond_slot_price(slot.slot_index),
+        skin_id: slot.skin_id.clone(),
+        phase: slot.phase.code(),
+        round_started_at: slot
+            .round_started_at
+            .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true)),
+        scheduled_end_time: slot
+            .scheduled_end_time
+            .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true)),
+        last_result: slot.last_result.clone(),
+    }));
+    let persistence = app.state::<PersistenceState>();
+    Ok(PondSnapshot {
+        slots,
+        activities: persistence
+            .store
+            .load_pond_activity(12)
+            .map_err(|error| error.to_string())?,
+        money: persistence
+            .store
+            .load_player_summary()
+            .map_err(|error| error.to_string())?
+            .money,
+        is_fishing: main.is_fishing,
+    })
+}
+
+fn broadcast_pond(app: &AppHandle) {
+    if let Ok(snapshot) = pond_snapshot(app) {
+        let _ = app.emit(POND_EVENT, snapshot);
+    }
+}
+
+#[derive(Clone)]
+struct SecondaryPondSlot {
+    slot_index: u8,
+    unlocked: bool,
+    skin_id: Option<String>,
+    phase: FishingPhase,
+    round_started_at: Option<DateTime<Utc>>,
+    scheduled_end_time: Option<DateTime<Utc>>,
+    planned_duration_seconds: u64,
+    round_number: u64,
+    selected_recipe_id: u64,
+    last_result: Option<String>,
+    state_revision: u64,
+}
+
+impl SecondaryPondSlot {
+    fn from_persisted(value: PersistedPondSlot) -> Self {
+        Self {
+            slot_index: value.slot_index,
+            unlocked: value.unlocked,
+            skin_id: value.skin_id,
+            phase: FishingPhase::from_code(&value.phase),
+            round_started_at: value.round_started_at.and_then(|time| {
+                DateTime::parse_from_rfc3339(&time)
+                    .ok()
+                    .map(|time| time.with_timezone(&Utc))
+            }),
+            scheduled_end_time: value.scheduled_end_time.and_then(|time| {
+                DateTime::parse_from_rfc3339(&time)
+                    .ok()
+                    .map(|time| time.with_timezone(&Utc))
+            }),
+            planned_duration_seconds: value.planned_duration_seconds,
+            round_number: value.round_number,
+            selected_recipe_id: value.selected_recipe_id,
+            last_result: value.last_result,
+            state_revision: value.state_revision,
+        }
+    }
+
+    fn persisted(&self) -> PersistedPondSlot {
+        PersistedPondSlot {
+            slot_index: self.slot_index,
+            unlocked: self.unlocked,
+            skin_id: self.skin_id.clone(),
+            phase: self.phase.code().to_owned(),
+            round_started_at: self
+                .round_started_at
+                .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true)),
+            scheduled_end_time: self
+                .scheduled_end_time
+                .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true)),
+            planned_duration_seconds: self.planned_duration_seconds,
+            round_number: self.round_number,
+            selected_recipe_id: self.selected_recipe_id,
+            last_result: self.last_result.clone(),
+            state_revision: self.state_revision,
+        }
+    }
+
+    fn schedule(
+        &mut self,
+        now: DateTime<Utc>,
+        catalog: &EventCatalog,
+        duration_multiplier: f64,
+        round_number: u64,
+        recipe_id: u64,
+    ) {
+        let mut plan = generate_round_plan(now, &mut rand::rng(), catalog, duration_multiplier);
+        plan.waiting_events.clear();
+        self.phase = FishingPhase::Waiting;
+        self.round_started_at = Some(now);
+        self.scheduled_end_time = Some(now + ChronoDuration::seconds(plan.duration_seconds));
+        self.planned_duration_seconds = plan.duration_seconds.max(0) as u64;
+        self.round_number = round_number;
+        self.selected_recipe_id = recipe_id;
+        self.state_revision += 1;
+    }
+
+    fn stop(&mut self) {
+        self.phase = FishingPhase::Stopped;
+        self.round_started_at = None;
+        self.scheduled_end_time = None;
+        self.planned_duration_seconds = 0;
+        self.state_revision += 1;
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PondSlotSnapshot {
+    slot_index: u8,
+    unlocked: bool,
+    fixed_desktop_slot: bool,
+    unlock_price: Option<u64>,
+    skin_id: Option<String>,
+    phase: &'static str,
+    round_started_at: Option<String>,
+    scheduled_end_time: Option<String>,
+    last_result: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PondSnapshot {
+    slots: Vec<PondSlotSnapshot>,
+    activities: Vec<PondActivity>,
+    money: f64,
+    is_fishing: bool,
 }
 
 fn space_tech_instant_hook_is_available(store: &SqliteStore, recipe_id: u64) -> bool {
@@ -1173,10 +1385,100 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+fn process_due_secondary_pond_round(app: &AppHandle) {
+    let due = {
+        let pond = app.state::<PondState>();
+        let mut slots = pond.0.lock().expect("pond state poisoned");
+        let Some(slot) = slots.iter_mut().find(|slot| {
+            slot.phase == FishingPhase::Waiting
+                && slot.scheduled_end_time.is_some_and(|end| end <= Utc::now())
+        }) else {
+            return;
+        };
+        slot.phase = FishingPhase::Settling;
+        slot.state_revision += 1;
+        save_secondary_pond_slot(app, slot);
+        (
+            slot.slot_index,
+            slot.skin_id.clone().unwrap_or_else(|| "orange".to_owned()),
+            slot.round_number,
+            slot.selected_recipe_id,
+            slot.round_started_at,
+            slot.planned_duration_seconds,
+        )
+    };
+    broadcast_pond(app);
+    let resolved = resolve_current_round(
+        app,
+        due.2,
+        due.3,
+        due.4,
+        due.5,
+        &[],
+        due.0,
+        &due.1,
+    )
+    .unwrap_or_else(|error| {
+        eprintln!("failed to resolve pond slot {}: {error}", due.0);
+        ResolvedRound {
+            summary: "这一席到了收线时间，但结果没有记下来。".to_owned(),
+            alert_kind: BobberAlertKind::Event,
+        }
+    });
+    let (keep_fishing, recipe_id) = {
+        let main_state = app.state::<PrototypeAppState>();
+        let main = main_state
+            .0
+            .lock()
+            .expect("prototype state poisoned");
+        (main.is_fishing, main.selected_recipe_id)
+    };
+    let persistence = app.state::<PersistenceState>();
+    let next_round_number = keep_fishing
+        .then(|| persistence.store.allocate_round_number().ok())
+        .flatten();
+    {
+        let pond = app.state::<PondState>();
+        let mut slots = pond.0.lock().expect("pond state poisoned");
+        let Some(slot) = slots.iter_mut().find(|slot| slot.slot_index == due.0) else {
+            return;
+        };
+        if slot.phase != FishingPhase::Settling || slot.round_number != due.2 {
+            return;
+        }
+        slot.last_result = Some(resolved.summary);
+        if slot.skin_id.is_some() {
+            if let Some(round_number) = next_round_number {
+                slot.schedule(
+                    Utc::now(),
+                    &persistence.event_catalog,
+                    round_duration_multiplier(&persistence.store),
+                    round_number,
+                    recipe_id,
+                );
+            } else {
+                slot.stop();
+            }
+        } else {
+            slot.stop();
+        }
+        save_secondary_pond_slot(app, slot);
+    }
+    {
+        let state = app.state::<PrototypeAppState>();
+        let mut state = state.0.lock().expect("prototype state poisoned");
+        state.state_revision += 1;
+        save_state(app, &state);
+        broadcast(app, state.snapshot());
+    }
+    broadcast_pond(app);
+}
+
 fn spawn_scheduler(app: AppHandle) {
     thread::spawn(move || {
         loop {
             thread::sleep(Duration::from_millis(500));
+            process_due_secondary_pond_round(&app);
             let (waiting_event, settling) = {
                 let state = app.state::<PrototypeAppState>();
                 let mut state = state.0.lock().expect("prototype state poisoned");
@@ -1212,6 +1514,13 @@ fn spawn_scheduler(app: AppHandle) {
                 .map(|value| value.with_timezone(&Utc));
             let settling_duration = settling.planned_duration_seconds;
             let settling_events = settling.waiting_events.clone();
+            let desktop_skin = app
+                .state::<SettingsState>()
+                .0
+                .lock()
+                .expect("settings state poisoned")
+                .bobber_skin
+                .clone();
             broadcast(&app, settling);
             thread::sleep(Duration::from_millis(650));
             let resolved = resolve_current_round(
@@ -1221,6 +1530,8 @@ fn spawn_scheduler(app: AppHandle) {
                 settling_started_at,
                 settling_duration,
                 &settling_events,
+                1,
+                &desktop_skin,
             )
             .unwrap_or_else(|error| {
                 eprintln!("failed to resolve fishing round: {error}");
@@ -1245,11 +1556,17 @@ fn spawn_scheduler(app: AppHandle) {
                         &persistence.store,
                         state.selected_recipe_id,
                     );
+                    let fallback_round_number = state.round_number.saturating_add(1);
+                    let next_round_number = persistence
+                        .store
+                        .allocate_round_number()
+                        .unwrap_or(fallback_round_number);
                     state.schedule_round(
                         Utc::now(),
                         &persistence.event_catalog,
                         round_duration_multiplier(&persistence.store),
                         instant_hook_unlocked,
+                        next_round_number,
                     );
                 } else {
                     state.phase = FishingPhase::Stopped;
@@ -1266,6 +1583,7 @@ fn spawn_scheduler(app: AppHandle) {
                 state.snapshot()
             };
             broadcast(&app, completed);
+            broadcast_pond(&app);
         }
     });
 }
@@ -1277,19 +1595,47 @@ fn get_prototype_state(app: AppHandle) -> PrototypeSnapshot {
 
 #[tauri::command]
 fn start_fishing(app: AppHandle) -> PrototypeSnapshot {
+    let persistence = app.state::<PersistenceState>();
+    let primary_round_number = persistence
+        .store
+        .allocate_round_number()
+        .unwrap_or_else(|_| snapshot(&app).round_number.saturating_add(1));
     let value = {
-        let persistence = app.state::<PersistenceState>();
         let state = app.state::<PrototypeAppState>();
         let mut state = state.0.lock().expect("prototype state poisoned");
         state.start(
             Utc::now(),
             &persistence.event_catalog,
             round_duration_multiplier(&persistence.store),
+            primary_round_number,
         );
         save_state(&app, &state);
         state.snapshot()
     };
+    let recipe_id = value.selected_recipe_id;
+    {
+        let pond = app.state::<PondState>();
+        let mut slots = pond.0.lock().expect("pond state poisoned");
+        for slot in slots
+            .iter_mut()
+            .filter(|slot| slot.unlocked && slot.skin_id.is_some())
+        {
+            if slot.phase == FishingPhase::Stopped {
+                if let Ok(round_number) = persistence.store.allocate_round_number() {
+                    slot.schedule(
+                        Utc::now(),
+                        &persistence.event_catalog,
+                        round_duration_multiplier(&persistence.store),
+                        round_number,
+                        recipe_id,
+                    );
+                    save_secondary_pond_slot(&app, slot);
+                }
+            }
+        }
+    }
     broadcast(&app, value.clone());
+    broadcast_pond(&app);
     value
 }
 
@@ -1302,8 +1648,137 @@ fn stop_fishing(app: AppHandle) -> PrototypeSnapshot {
         save_state(&app, &state);
         state.snapshot()
     };
+    {
+        let pond = app.state::<PondState>();
+        let mut slots = pond.0.lock().expect("pond state poisoned");
+        for slot in slots.iter_mut() {
+            if slot.phase != FishingPhase::Stopped {
+                slot.stop();
+                save_secondary_pond_slot(&app, slot);
+            }
+        }
+    }
     broadcast(&app, value.clone());
+    broadcast_pond(&app);
     value
+}
+
+#[tauri::command]
+fn get_pond_state(app: AppHandle) -> Result<PondSnapshot, String> {
+    pond_snapshot(&app)
+}
+
+#[tauri::command]
+fn purchase_pond_slot(app: AppHandle, slot_index: u8) -> Result<PondSnapshot, String> {
+    let price = pond_slot_price(slot_index).ok_or("这个席位不需要购买")?;
+    app.state::<PersistenceState>()
+        .store
+        .purchase_pond_slot(
+            slot_index,
+            price as f64,
+            &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => "金币不足".to_owned(),
+            _ => "请先按顺序解锁前一个席位，或该席位已经解锁".to_owned(),
+        })?;
+    {
+        let pond = app.state::<PondState>();
+        let mut slots = pond.0.lock().expect("pond state poisoned");
+        let slot = slots
+            .iter_mut()
+            .find(|slot| slot.slot_index == slot_index)
+            .ok_or("席位不存在")?;
+        slot.unlocked = true;
+        slot.state_revision += 1;
+    }
+    broadcast_pond(&app);
+    pond_snapshot(&app)
+}
+
+#[tauri::command]
+fn assign_pond_skin(
+    app: AppHandle,
+    slot_index: u8,
+    skin_id: Option<String>,
+) -> Result<PondSnapshot, String> {
+    if !(2..=6).contains(&slot_index) {
+        return Err("桌宠固定使用第一个席位".to_owned());
+    }
+    if let Some(ref skin_id) = skin_id {
+        if !is_known_skin_id(skin_id) {
+            return Err("未知的角色皮肤".to_owned());
+        }
+        if !app
+            .state::<PersistenceState>()
+            .store
+            .is_skin_owned(skin_id)
+            .map_err(|error| error.to_string())?
+        {
+            return Err("这款角色尚未解锁".to_owned());
+        }
+        let desktop_skin = app
+            .state::<SettingsState>()
+            .0
+            .lock()
+            .expect("settings state poisoned")
+            .bobber_skin
+            .clone();
+        if *skin_id == desktop_skin {
+            return Err("当前桌宠已经固定坐在第一个席位".to_owned());
+        }
+    }
+    let (is_fishing, recipe_id) = {
+        let main_state = app.state::<PrototypeAppState>();
+        let main = main_state
+            .0
+            .lock()
+            .expect("prototype state poisoned");
+        (main.is_fishing, main.selected_recipe_id)
+    };
+    let persistence = app.state::<PersistenceState>();
+    let next_round_number = if is_fishing && skin_id.is_some() {
+        Some(
+            persistence
+                .store
+                .allocate_round_number()
+                .map_err(|error| error.to_string())?,
+        )
+    } else {
+        None
+    };
+    {
+        let pond = app.state::<PondState>();
+        let mut slots = pond.0.lock().expect("pond state poisoned");
+        if let Some(ref skin_id) = skin_id {
+            if slots.iter().any(|slot| {
+                slot.slot_index != slot_index && slot.skin_id.as_deref() == Some(skin_id)
+            }) {
+                return Err("同一个角色不能同时坐在两个席位".to_owned());
+            }
+        }
+        let slot = slots
+            .iter_mut()
+            .find(|slot| slot.slot_index == slot_index)
+            .ok_or("席位不存在")?;
+        if !slot.unlocked {
+            return Err("请先解锁这个席位".to_owned());
+        }
+        slot.skin_id = skin_id;
+        slot.stop();
+        if let Some(round_number) = next_round_number {
+            slot.schedule(
+                Utc::now(),
+                &persistence.event_catalog,
+                round_duration_multiplier(&persistence.store),
+                round_number,
+                recipe_id,
+            );
+        }
+        save_secondary_pond_slot(&app, slot);
+    }
+    broadcast_pond(&app);
+    pond_snapshot(&app)
 }
 
 #[tauri::command]
@@ -1770,8 +2245,21 @@ fn update_app_settings(app: AppHandle, mut settings: AppSettings) -> Result<AppS
         let state = app.state::<SettingsState>();
         *state.0.lock().expect("settings state poisoned") = settings.clone();
     }
+    {
+        let pond = app.state::<PondState>();
+        let mut slots = pond.0.lock().expect("pond state poisoned");
+        for slot in slots
+            .iter_mut()
+            .filter(|slot| slot.skin_id.as_deref() == Some(&settings.bobber_skin))
+        {
+            slot.skin_id = None;
+            slot.stop();
+            save_secondary_pond_slot(&app, slot);
+        }
+    }
     apply_window_settings(&app, &settings);
     broadcast_settings(&app, settings.clone());
+    broadcast_pond(&app);
     Ok(settings)
 }
 
@@ -1792,7 +2280,7 @@ fn show_main_window(app: AppHandle) {
 fn open_main_section(app: AppHandle, section: String) -> Result<(), String> {
     if !matches!(
         section.as_str(),
-        "fishing" | "basket" | "treasure" | "log" | "fish" | "bait" | "store" | "settings"
+        "fishing" | "pond" | "basket" | "treasure" | "log" | "fish" | "bait" | "store" | "settings"
     ) {
         return Err("未知的主窗口页面".to_owned());
     }
@@ -1960,6 +2448,7 @@ pub fn run() {
             Some(vec!["--background"]),
         ))
         .manage(PrototypeAppState::default())
+        .manage(PondState::default())
         .manage(SettingsState::default())
         .manage(LifecycleState::default())
         .manage(BobberAlertState::default())
@@ -2007,6 +2496,7 @@ pub fn run() {
             let restored = store.load().map_err(|error| {
                 std::io::Error::other(format!("failed to load persisted state: {error}"))
             })?;
+            let primary_relaunch_round = store.allocate_round_number().unwrap_or(1);
             {
                 let state = app.state::<PrototypeAppState>();
                 let mut state = state.0.lock().expect("prototype state poisoned");
@@ -2021,6 +2511,8 @@ pub fn run() {
                             state.round_started_at,
                             state.planned_duration_seconds,
                             &state.waiting_events,
+                            1,
+                            &settings.bobber_skin,
                         )
                         .ok()
                         .map(|result| result.summary)
@@ -2031,6 +2523,7 @@ pub fn run() {
                         Utc::now(),
                         &event_catalog,
                         round_duration_multiplier(&store),
+                        primary_relaunch_round,
                     );
                     if let Some(offline_result) = offline_result {
                         state.last_result = Some(offline_result);
@@ -2055,6 +2548,63 @@ pub fn run() {
                     .map_err(|error| {
                         std::io::Error::other(format!("failed to save initial state: {error}"))
                     })?;
+            }
+            let (main_is_fishing, selected_recipe_id) = {
+                let state = app.state::<PrototypeAppState>();
+                let state = state.0.lock().expect("prototype state poisoned");
+                (state.is_fishing, state.selected_recipe_id)
+            };
+            let mut pond_slots = store
+                .load_pond_slots()
+                .map_err(|error| std::io::Error::other(format!("failed to load pond: {error}")))?
+                .into_iter()
+                .filter(|slot| slot.slot_index >= 2)
+                .map(SecondaryPondSlot::from_persisted)
+                .collect::<Vec<_>>();
+            for slot in &mut pond_slots {
+                if slot.phase != FishingPhase::Stopped && slot.skin_id.is_some() {
+                    let skin_id = slot.skin_id.clone().unwrap_or_else(|| "orange".to_owned());
+                    if let Ok(result) = resolve_with_store(
+                        &store,
+                        &outcome_text_catalog,
+                        slot.round_number,
+                        slot.selected_recipe_id,
+                        slot.round_started_at,
+                        slot.planned_duration_seconds,
+                        &[],
+                        slot.slot_index,
+                        &skin_id,
+                    ) {
+                        slot.last_result = Some(result.summary);
+                    }
+                    if main_is_fishing {
+                        if let Ok(round_number) = store.allocate_round_number() {
+                            slot.schedule(
+                                Utc::now(),
+                                &event_catalog,
+                                round_duration_multiplier(&store),
+                                round_number,
+                                selected_recipe_id,
+                            );
+                        } else {
+                            slot.stop();
+                        }
+                    } else {
+                        slot.stop();
+                    }
+                    store
+                        .save_pond_slot(
+                            &slot.persisted(),
+                            &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+                        )
+                        .map_err(|error| {
+                            std::io::Error::other(format!("failed to save pond slot: {error}"))
+                        })?;
+                }
+            }
+            {
+                let pond = app.state::<PondState>();
+                *pond.0.lock().expect("pond state poisoned") = pond_slots;
             }
             app.manage(PersistenceState {
                 store,
@@ -2104,6 +2654,9 @@ pub fn run() {
             get_prototype_state,
             start_fishing,
             stop_fishing,
+            get_pond_state,
+            purchase_pond_slot,
+            assign_pond_skin,
             get_bait_editor_data,
             save_bait_recipe,
             select_bait_recipe,
@@ -2208,6 +2761,39 @@ mod tests {
     }
 
     #[test]
+    fn pond_seat_prices_start_at_fifty_thousand_and_rise_by_thirty_thousand() {
+        assert_eq!(pond_slot_price(1), None);
+        assert_eq!(pond_slot_price(2), Some(50_000));
+        assert_eq!(pond_slot_price(3), Some(80_000));
+        assert_eq!(pond_slot_price(4), Some(110_000));
+        assert_eq!(pond_slot_price(5), Some(140_000));
+        assert_eq!(pond_slot_price(6), Some(170_000));
+        assert_eq!(pond_slot_price(7), None);
+    }
+
+    #[test]
+    fn secondary_pond_misses_stay_out_of_the_public_log() {
+        let missed = RoundOutcome::Missed {
+            reason: "这一竿没有收获。".to_owned(),
+            best_similarity: 0.5,
+            below_similarity_threshold: false,
+        };
+        let caught = RoundOutcome::Caught {
+            fish_id: 1,
+            fish_name: "鲫鱼".to_owned(),
+            rarity: FishRarity::Common,
+            length_cm: 12.0,
+            weight_kg: 0.2,
+            value: 4.0,
+            similarity: 0.8,
+            description: "水面轻轻一响。".to_owned(),
+        };
+        assert!(should_persist_round_result(1, &missed));
+        assert!(!should_persist_round_result(2, &missed));
+        assert!(should_persist_round_result(2, &caught));
+    }
+
+    #[test]
     fn legacy_global_companion_name_is_migrated_to_the_active_skin() {
         let mut stored = StoredAppSettings::default();
         stored.bobber_skin = "gray".to_owned();
@@ -2250,7 +2836,7 @@ mod tests {
         };
 
         let catalog = EventCatalog::seeded();
-        state.settle_after_relaunch(now, &catalog, 1.0);
+        state.settle_after_relaunch(now, &catalog, 1.0, 10);
 
         assert_eq!(state.phase, FishingPhase::Waiting);
         assert!(state.is_fishing);
